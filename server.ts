@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { createServer as createViteServer } from "vite";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import { simpleParser } from "mailparser";
@@ -302,7 +303,7 @@ async function startServer() {
 
   // --- Reminder Worker: posts sociales y reuniones próximas ---
   // Genera notificaciones internas; el Push Guard global las entrega al celular/escritorio si existe suscripción.
-  const reminderWorkerEnabled = process.env.ENABLE_REMINDER_WORKER === "true";
+  const reminderWorkerEnabled = process.env.ENABLE_REMINDER_WORKER !== "false";
   const reminderWorkerIntervalMs = Number(process.env.REMINDER_WORKER_INTERVAL_MS || 60000);
   const reminderLookaheadMinutes = Number(process.env.REMINDER_LOOKAHEAD_MINUTES || 90);
 
@@ -857,7 +858,7 @@ async function startServer() {
 
   app.get("/api/version", (req: any, res: any) => {
     res.json({
-      buildId: "goatify-cloudrun-secure-v1",
+      buildId: "goatify-v16-3-credits-usage-sync-fix",
       timestamp: new Date().toISOString(),
       mode: "backend-only"
     });
@@ -1313,19 +1314,100 @@ async function startServer() {
 
   app.post('/api/usage/sync', requireFirebaseUser, async (req: any, res: any) => {
     const uid = req.user.uid;
-    const userSnap = await firestore.collection('users').doc(uid).get();
-    const userPlan = String((userSnap.data() || {}).plan || req.body?.plan || 'free').toLowerCase();
-    const now = new Date();
-    const nextMonth = new Date(now);
-    nextMonth.setMonth(now.getMonth() + 1);
-    await firestore.collection('user_usage').doc(uid).set({
-      user_id: uid,
-      plan_id: SERVER_PLAN_LIMITS[userPlan] ? userPlan : 'free',
-      billing_cycle_start: now.toISOString(),
-      billing_cycle_end: nextMonth.toISOString(),
-      counters: { ...serverDefaultCounters(now.toISOString()) }
-    }, { merge: true });
-    return res.json({ ok: true });
+    const usageRef = firestore.collection('user_usage').doc(uid);
+    const userRef = firestore.collection('users').doc(uid);
+
+    try {
+      let responsePayload: any = null;
+      await firestore.runTransaction(async (tx) => {
+        const [usageSnap, userSnap] = await Promise.all([tx.get(usageRef), tx.get(userRef)]);
+        const now = new Date();
+        const nowIso = now.toISOString();
+        const today = nowIso.split('T')[0];
+        const nextMonth = new Date(now);
+        nextMonth.setMonth(now.getMonth() + 1);
+
+        const userData: any = userSnap.exists ? (userSnap.data() || {}) : {};
+        let realPlan = String(userData.plan || req.body?.plan || 'free').toLowerCase();
+        const subscriptionStatus = String(userData.subscriptionStatus || 'active').toLowerCase();
+        if (subscriptionStatus === 'canceled' && realPlan !== 'free') realPlan = 'free';
+        if (!SERVER_PLAN_LIMITS[realPlan]) realPlan = 'free';
+
+        const defaults = serverDefaultCounters(nowIso);
+        const existing: any = usageSnap.exists ? (usageSnap.data() || {}) : {};
+        const existingCounters: any = existing.counters || {};
+        const counters: any = { ...defaults, ...existingCounters };
+        const updates: any = {
+          user_id: uid,
+          plan_id: realPlan,
+          counters: {}
+        };
+
+        // Importante: sync NO debe resetear contadores cada vez que cambia el perfil.
+        // Solo crea el documento si no existe, rellena llaves faltantes y resetea por ciclo real.
+        if (!usageSnap.exists) {
+          updates.total_cost_usd = 0;
+          updates.tokens_in = 0;
+          updates.tokens_out = 0;
+          updates.billing_cycle_start = nowIso;
+          updates.billing_cycle_end = nextMonth.toISOString();
+          updates.counters = { ...defaults };
+        } else {
+          for (const [key, value] of Object.entries(defaults)) {
+            if (typeof existingCounters[key] === 'undefined') {
+              updates[`counters.${key}`] = value;
+            }
+          }
+        }
+
+        const lastDailyRaw = counters.last_daily_reset ? new Date(counters.last_daily_reset) : new Date(0);
+        const lastDailyDay = lastDailyRaw.toISOString().split('T')[0];
+        if (today !== lastDailyDay) {
+          for (const key of SERVER_DAILY_USAGE_KEYS) {
+            updates[`counters.${key}`] = 0;
+            counters[key] = 0;
+          }
+          updates['counters.last_daily_reset'] = nowIso;
+          counters.last_daily_reset = nowIso;
+        }
+
+        const billingEnd = existing.billing_cycle_end ? new Date(existing.billing_cycle_end) : nextMonth;
+        if (!usageSnap.exists || now >= billingEnd) {
+          for (const key of SERVER_MONTHLY_USAGE_KEYS) {
+            updates[`counters.${key}`] = 0;
+            counters[key] = 0;
+          }
+          updates.billing_cycle_start = nowIso;
+          updates.billing_cycle_end = nextMonth.toISOString();
+          updates.total_cost_usd = 0;
+          updates.tokens_in = 0;
+          updates.tokens_out = 0;
+        }
+
+        updates['counters.last_activity'] = nowIso;
+        counters.last_activity = nowIso;
+
+        tx.set(usageRef, updates, { merge: true });
+        responsePayload = {
+          ok: true,
+          usage: {
+            user_id: uid,
+            plan_id: realPlan,
+            total_cost_usd: updates.total_cost_usd ?? existing.total_cost_usd ?? 0,
+            tokens_in: updates.tokens_in ?? existing.tokens_in ?? 0,
+            tokens_out: updates.tokens_out ?? existing.tokens_out ?? 0,
+            billing_cycle_start: updates.billing_cycle_start ?? existing.billing_cycle_start ?? nowIso,
+            billing_cycle_end: updates.billing_cycle_end ?? existing.billing_cycle_end ?? nextMonth.toISOString(),
+            counters
+          }
+        };
+      });
+
+      return res.json(responsePayload || { ok: true });
+    } catch (e: any) {
+      console.error('[USAGE SYNC ERROR]', e);
+      return res.status(500).json({ ok: false, error: e?.message || 'No se pudo sincronizar el uso.' });
+    }
   });
 
   app.post('/api/usage/recalculate', requireFirebaseUser, async (req: any, res: any) => {
@@ -4457,10 +4539,8 @@ async function startServer() {
     });
   });
 
-  // Vite middleware solo para desarrollo.
-  // IMPORTANTE: no importar vite en producción, porque Docker instala solo dependencies.
+  // Vite middleware para desarrollo
   if (process.env.NODE_ENV !== "production") {
-    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

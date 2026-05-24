@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useRef, lazy, Suspense } from 'react';
 import { AppContext } from '../../context/AppContext';
-import { getChillProfile, addChillProgress, getGlobalLeaderboard, ChillProfile } from '../../services/chillService';
+import { getChillProfile, addChillProgress, getGlobalLeaderboard, syncChillIdentity, ChillProfile } from '../../services/chillService';
 import Icon from '../Icon';
 import Spinner from '../ui/Spinner';
 
@@ -28,6 +28,47 @@ const CrosswordGame = lazy(() => import('./CrosswordGame'));
 const ChessGame = lazy(() => import('./ChessGame'));
 const PianoMaster = lazy(() => import('./PianoMaster'));
 
+const preloadGameModule = (game: string) => {
+    const importers: Record<string, () => Promise<any>> = {
+        dinoRun: () => import('./DinoRun'),
+        neonSnake: () => import('./NeonSnake'),
+        neonTetris: () => import('./NeonTetris'),
+        brickBreaker: () => import('./BrickBreaker'),
+        goatKong: () => import('./GoatKong'),
+        flappyGoat: () => import('./FlappyGoat'),
+        '2048': () => import('./Goat2048'),
+        memoryMatch: () => import('./MemoryMatch'),
+        whackAMole: () => import('./WhackAMole'),
+        pacman: () => import('./Pacman'),
+        sudoku: () => import('./Sudoku'),
+        towerStack: () => import('./TowerStack'),
+        goatSniper: () => import('./GoatSniper'),
+        superGoatBros: () => import('./SuperGoatBros'),
+        goatInvaders: () => import('./GoatInvaders'),
+        goatRacer: () => import('./GoatRacer'),
+        poker: () => import('./PokerGame'),
+        blackjack: () => import('./BlackjackGame'),
+        solitaire: () => import('./SolitaireGame'),
+        wordSearch: () => import('./WordSearchGame'),
+        crossword: () => import('./CrosswordGame'),
+        chess: () => import('./ChessGame'),
+        pianoMaster: () => import('./PianoMaster'),
+    };
+    return importers[game]?.().catch(() => undefined);
+};
+
+const warmUpChillGames = () => {
+    const firstBatch = ['neonSnake', 'dinoRun', 'goatRacer', 'flappyGoat', '2048', 'memoryMatch'];
+    const secondBatch = ['neonTetris', 'brickBreaker', 'pacman', 'sudoku', 'goatInvaders', 'pianoMaster'];
+    firstBatch.forEach(preloadGameModule);
+    const runLater = () => secondBatch.forEach(preloadGameModule);
+    if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(runLater, { timeout: 2500 });
+    } else {
+        globalThis.setTimeout(runLater, 1200);
+    }
+};
+
 const GoatifyChill: React.FC = () => {
     const { currentUser, userProfile, updateUserProfile } = useContext(AppContext);
     const [profile, setProfile] = useState<ChillProfile | null>(null);
@@ -36,39 +77,112 @@ const GoatifyChill: React.FC = () => {
     const [leaderboard, setLeaderboard] = useState<any[]>([]);
     const [leaderboardGame, setLeaderboardGame] = useState<'dinoRun' | 'neonSnake' | 'neonTetris' | 'brickBreaker' | 'goatKong' | 'flappyGoat' | '2048' | 'memoryMatch' | 'whackAMole' | 'pacman' | 'sudoku' | 'towerStack' | 'goatSniper' | 'superGoatBros' | 'goatInvaders' | 'goatRacer' | 'chess' | 'pianoMaster' | 'poker' | 'blackjack' | 'solitaire' | 'wordSearch' | 'crossword'>('neonSnake');
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [isPseudoFullscreen, setIsPseudoFullscreen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const visualFullscreen = isFullscreen || isPseudoFullscreen;
 
-    const toggleFullscreen = () => {
-        if (!document.fullscreenElement) {
-            containerRef.current?.requestFullscreen().catch(err => {
-                console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
-            });
-        } else {
-            document.exitFullscreen();
+    const lockOrientationIfPossible = async () => {
+        try {
+            const orientation = (screen as any).orientation;
+            if (orientation?.lock) {
+                await orientation.lock('portrait-primary').catch(() => undefined);
+            }
+        } catch {
+            // Algunos navegadores móviles no permiten bloquear orientación; no afecta el juego.
+        }
+    };
+
+    const toggleFullscreen = async () => {
+        const el = containerRef.current;
+        if (!el) return;
+
+        if (document.fullscreenElement) {
+            await document.exitFullscreen().catch(() => undefined);
+            setIsPseudoFullscreen(false);
+            return;
+        }
+
+        if (isPseudoFullscreen) {
+            setIsPseudoFullscreen(false);
+            return;
+        }
+
+        try {
+            if (el.requestFullscreen) {
+                await el.requestFullscreen();
+                await lockOrientationIfPossible();
+            } else {
+                setIsPseudoFullscreen(true);
+            }
+        } catch (err: any) {
+            console.warn(`Fullscreen nativo no disponible; activando modo inmersivo visual: ${err?.message || err}`);
+            setIsPseudoFullscreen(true);
         }
     };
 
     useEffect(() => {
         const handleFullscreenChange = () => {
             setIsFullscreen(!!document.fullscreenElement);
+            if (document.fullscreenElement) setIsPseudoFullscreen(false);
         };
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
     }, []);
 
     useEffect(() => {
+        const shouldLock = visualFullscreen;
+        const previousOverflow = document.body.style.overflow;
+        const previousOverscroll = (document.body.style as any).overscrollBehavior;
+        if (shouldLock) {
+            document.body.style.overflow = 'hidden';
+            (document.body.style as any).overscrollBehavior = 'none';
+        }
+        return () => {
+            document.body.style.overflow = previousOverflow;
+            (document.body.style as any).overscrollBehavior = previousOverscroll;
+        };
+    }, [visualFullscreen, activeGame]);
+
+    useEffect(() => {
+        const handleEsc = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && isPseudoFullscreen) setIsPseudoFullscreen(false);
+        };
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isPseudoFullscreen]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        const cacheKey = `goatify_chill_profile_${currentUser.uid}`;
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+                setProfile(JSON.parse(cached));
+                setLoading(false);
+            }
+        } catch {}
+        loadProfile();
+        warmUpChillGames();
+    }, [currentUser?.uid]);
+
+    useEffect(() => {
         if (currentUser) {
-            loadProfile();
             loadLeaderboard(leaderboardGame);
         }
-    }, [currentUser, leaderboardGame]);
+    }, [currentUser?.uid, leaderboardGame]);
 
     const loadProfile = async () => {
         if (!currentUser) return;
-        setLoading(true);
+        const cacheKey = `goatify_chill_profile_${currentUser.uid}`;
+        if (!profile) setLoading(true);
         try {
+            const displayName = [userProfile?.name, userProfile?.lastName].filter(Boolean).join(' ').trim() || currentUser.displayName || currentUser.email?.split('@')[0] || 'Jugador Goatify';
+            const avatarUrl = userProfile?.avatarUrl || currentUser.photoURL || null;
+            await syncChillIdentity(currentUser.uid, { displayName, avatarUrl, email: currentUser.email || '' });
             const p = await getChillProfile(currentUser.uid);
-            setProfile(p);
+            const enriched = { ...p, displayName, avatarUrl, email: currentUser.email || p.email };
+            setProfile(enriched);
+            localStorage.setItem(cacheKey, JSON.stringify(enriched));
         } catch (e) {
             console.error(e);
         } finally {
@@ -110,13 +224,10 @@ const GoatifyChill: React.FC = () => {
     };
 
     const selectGame = (game: any) => {
+        preloadGameModule(game);
         setActiveGame(game);
-        // Auto-fullscreen attempt
-        if (!document.fullscreenElement) {
-            containerRef.current?.requestFullscreen().catch(err => {
-                console.warn(`Fullscreen blocked: ${err.message}`);
-            });
-        }
+        // No forzamos pantalla completa al abrir: eso puede bloquear el navegador y hacer sentir lento el juego.
+        // El usuario puede activarla desde el botón dentro de cada juego.
     };
 
     const renderContent = () => {
@@ -132,7 +243,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('dinoRun', score, xp, hit)} 
                         bestScore={profile.bestScores.dinoRun} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -146,7 +257,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('neonSnake', score, xp, hit)} 
                         bestScore={profile.bestScores.neonSnake} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -160,7 +271,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('neonTetris', score, xp, hit)} 
                         bestScore={profile.bestScores.neonTetris || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -174,7 +285,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('brickBreaker', score, xp, hit)} 
                         bestScore={profile.bestScores.brickBreaker || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -188,7 +299,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('goatKong', score, xp, hit)} 
                         bestScore={profile.bestScores.goatKong || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -202,7 +313,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('flappyGoat', score, xp, hit)} 
                         bestScore={profile.bestScores.flappyGoat || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -216,7 +327,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('2048', score, xp, hit)} 
                         bestScore={profile.bestScores['2048'] || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -230,7 +341,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('memoryMatch', score, xp, hit)} 
                         bestScore={profile.bestScores.memoryMatch || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -244,7 +355,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('whackAMole', score, xp, hit)} 
                         bestScore={profile.bestScores.whackAMole || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -258,7 +369,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('pacman', score, xp, hit)} 
                         bestScore={profile.bestScores.pacman || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -272,7 +383,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('sudoku', score, xp, hit)} 
                         bestScore={profile.bestScores.sudoku || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -286,7 +397,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('towerStack', score, xp, hit)} 
                         bestScore={profile.bestScores.towerStack || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -300,7 +411,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('goatSniper', score, xp, hit)} 
                         bestScore={profile.bestScores.goatSniper || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -314,7 +425,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('superGoatBros', score, xp, hit)} 
                         bestScore={profile.bestScores.superGoatBros || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -328,7 +439,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('goatInvaders', score, xp, hit)} 
                         bestScore={profile.bestScores.goatInvaders || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -342,8 +453,8 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('goatRacer', score, xp, hit)} 
                         bestScore={profile.bestScores.goatRacer || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
-                        user={currentUser}
+                        isFullscreen={visualFullscreen}
+                        user={{ uid: currentUser?.uid, email: currentUser?.email, displayName: profile?.displayName || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Jugador Goatify' }}
                     />
                 </Suspense>
             );
@@ -358,7 +469,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('poker', score, xp, hit)} 
                         bestScore={profile.bestScores.poker || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -372,7 +483,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('blackjack', score, xp, hit)} 
                         bestScore={profile.bestScores.blackjack || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -386,7 +497,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('solitaire', score, xp, hit)} 
                         bestScore={profile.bestScores.solitaire || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -400,7 +511,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('wordSearch', score, xp, hit)} 
                         bestScore={profile.bestScores.wordSearch || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -414,7 +525,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('crossword', score, xp, hit)} 
                         bestScore={profile.bestScores.crossword || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -428,7 +539,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('chess', score, xp, hit)} 
                         bestScore={profile.bestScores.chess || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -442,7 +553,7 @@ const GoatifyChill: React.FC = () => {
                         onGameEnd={(score, xp, hit) => handleGameEnd('pianoMaster', score, xp, hit)} 
                         bestScore={profile.bestScores.pianoMaster || 0} 
                         toggleFullscreen={toggleFullscreen}
-                        isFullscreen={isFullscreen}
+                        isFullscreen={visualFullscreen}
                     />
                 </Suspense>
             );
@@ -469,9 +580,9 @@ const GoatifyChill: React.FC = () => {
                                 <button 
                                     onClick={toggleFullscreen}
                                     className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors text-neutral-400 hover:text-white"
-                                    title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                                    title={visualFullscreen ? "Salir de pantalla completa" : "Pantalla completa / modo inmersivo"}
                                 >
-                                    <Icon name={isFullscreen ? "minimize" : "maximize"} className="w-5 h-5" />
+                                    <Icon name={visualFullscreen ? "minimize" : "maximize"} className="w-5 h-5" />
                                 </button>
                             </div>
                             <p className="text-neutral-400 text-sm max-w-md">
@@ -515,29 +626,6 @@ const GoatifyChill: React.FC = () => {
                                     className={`h-full flex-1 rounded-full transition-all duration-500 ${step < profile.dailyProgress ? 'bg-gradient-to-r from-indigo-500 to-purple-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]' : 'bg-white/5'}`}
                                 ></div>
                             ))}
-                        </div>
-                    </div>
-
-                    {/* Chill Pro Layer: tournaments + mobile controls guide */}
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 relative z-10">
-                        <div className="md:col-span-2 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 overflow-hidden relative">
-                            <div className="absolute -right-8 -top-8 w-28 h-28 rounded-full bg-blue-500/20 blur-2xl" />
-                            <div className="relative flex items-start gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/20 flex items-center justify-center shrink-0">
-                                    <Icon name="trophy" className="w-5 h-5 text-blue-300" />
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black uppercase tracking-widest text-white">Torneo diario Chill</h3>
-                                    <p className="text-xs text-blue-100/80 mt-1">Compite por ranking global, XP e Intis. El juego destacado de hoy es <button onClick={() => selectGame('goatRacer')} className="text-blue-200 underline decoration-blue-300/40 font-black">Goat Racer</button>: en celular puedes curvar inclinando el teléfono o usar botones táctiles.</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                            <div className="flex items-center gap-2 text-emerald-200 font-black uppercase tracking-widest text-xs mb-2">
-                                <Icon name="smartphone" className="w-4 h-4" />
-                                Mobile Ready
-                            </div>
-                            <p className="text-xs text-emerald-50/70">Juegos con swipe, taps, botones táctiles y modo giroscopio donde aplica. Mejor experiencia en pantalla completa.</p>
                         </div>
                     </div>
                 </div>
@@ -1038,6 +1126,41 @@ const GoatifyChill: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Competitive Arena */}
+                    <div className="space-y-4">
+                        <div className="bg-gradient-to-br from-indigo-600/15 via-purple-600/10 to-neutral-900 border border-indigo-400/20 rounded-3xl p-5 shadow-[0_0_35px_rgba(99,102,241,0.12)]">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <h2 className="text-lg font-black text-white flex items-center gap-2">
+                                        <Icon name="star" className="w-5 h-5 text-yellow-300" />
+                                        Arena de Torneos
+                                    </h2>
+                                    <p className="text-[11px] text-neutral-400 mt-1">Compite por XP, ranking semanal y retos rápidos.</p>
+                                </div>
+                                <span className="px-2 py-1 rounded-full bg-yellow-400/10 text-yellow-200 border border-yellow-300/20 text-[9px] font-black uppercase tracking-widest">Beta</span>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3">
+                                <button onClick={() => { setLeaderboardGame('goatRacer'); selectGame('goatRacer'); }} className="group text-left p-4 rounded-2xl bg-black/25 border border-white/10 hover:border-blue-400/40 transition-all">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-sm font-black text-white">Copa Goat Racer</div>
+                                            <div className="text-[11px] text-neutral-400 mt-1">Modo recomendado: móvil con inclinación o botones.</div>
+                                        </div>
+                                        <Icon name="car" className="w-6 h-6 text-blue-300 group-hover:scale-110 transition-transform" />
+                                    </div>
+                                </button>
+                                <button onClick={() => setLeaderboardGame('neonSnake')} className="group text-left p-4 rounded-2xl bg-black/25 border border-white/10 hover:border-emerald-400/40 transition-all">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-sm font-black text-white">Reto Diario Chill</div>
+                                            <div className="text-[11px] text-neutral-400 mt-1">Mira el top global y sube tu récord diario.</div>
+                                        </div>
+                                        <Icon name="star" className="w-6 h-6 text-emerald-300 group-hover:scale-110 transition-transform" />
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+
                     {/* Leaderboard Section */}
                     <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 flex flex-col min-h-[300px]">
                         <div className="flex justify-between items-center mb-6">
@@ -1087,12 +1210,15 @@ const GoatifyChill: React.FC = () => {
                                                 #{idx + 1}
                                             </span>
                                             <div className="w-8 h-8 rounded-full bg-neutral-700 flex items-center justify-center overflow-hidden">
-                                                {/* We don't have full user profiles in the chill_profiles collection, so we just show a generic icon or the first letter of their UID if we wanted. For now, a generic user icon. */}
-                                                <Icon name="user" className="w-4 h-4 text-neutral-400" />
+                                                {entry.avatarUrl ? (
+                                                    <img src={entry.avatarUrl} alt={entry.displayName || 'Jugador'} className="w-full h-full object-cover" />
+                                                ) : (
+                                                    <span className="text-xs font-black text-neutral-300">{(entry.displayName || 'G')[0]?.toUpperCase()}</span>
+                                                )}
                                             </div>
-                                            <div className="flex flex-col">
-                                                <span className="text-sm font-bold text-white">
-                                                    {entry.uid === currentUser?.uid ? 'Tú' : `Jugador ${entry.uid.substring(0,4)}`}
+                                            <div className="flex flex-col min-w-0">
+                                                <span className="text-sm font-bold text-white truncate max-w-[120px]">
+                                                    {entry.uid === currentUser?.uid ? 'Tú' : (entry.displayName || `Jugador ${entry.uid.substring(0,4)}`)}
                                                 </span>
                                                 <span className="text-[10px] text-neutral-500 uppercase">{entry.xp} XP</span>
                                             </div>
@@ -1103,13 +1229,18 @@ const GoatifyChill: React.FC = () => {
                             )}
                         </div>
                     </div>
+                    </div>
                 </div>
             </div>
         );
     };
 
     return (
-        <div ref={containerRef} className="h-full bg-neutral-950 text-white relative overflow-hidden" style={{ touchAction: activeGame ? 'none' : 'auto' }}>
+        <div
+            ref={containerRef}
+            className={`${visualFullscreen ? 'fixed inset-0 z-[99999] h-[100dvh] w-screen bg-neutral-950' : 'h-full bg-neutral-950'} goatify-chill-immersive text-white relative overflow-hidden`}
+            style={visualFullscreen || activeGame ? { paddingTop: visualFullscreen ? 'env(safe-area-inset-top)' : undefined, paddingBottom: visualFullscreen ? 'env(safe-area-inset-bottom)' : undefined, touchAction: activeGame ? 'none' : 'manipulation', overscrollBehavior: 'contain' } : undefined}
+        >
             {/* Particle Background Effect */}
             <div className="absolute inset-0 z-0 pointer-events-none opacity-30">
                 <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(79,70,229,0.1),transparent_50%)]"></div>
@@ -1128,6 +1259,11 @@ const GoatifyChill: React.FC = () => {
                     ></div>
                 ))}
             </div>
+            {visualFullscreen && (
+                <div className="pointer-events-none absolute left-1/2 top-2 z-[100000] -translate-x-1/2 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white/70 backdrop-blur-md md:hidden">
+                    Modo inmersivo Chill
+                </div>
+            )}
             <div className="relative z-10 h-full">
                 {renderContent()}
             </div>

@@ -37,7 +37,7 @@ const MessageList = React.memo(({ history, isLoading, onStartEdit, editingMessag
         <>
             {history.map((msg) => (
                 <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-subtle-slide-in-up`}>
-                    <div className={`relative group max-w-[min(760px,92%)] rounded-3xl px-4 sm:px-5 py-3 text-sm leading-relaxed ${msg.role === 'user' ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-sm' : 'bg-neutral-50 dark:bg-neutral-950 text-gray-800 dark:text-gray-200 border border-neutral-100 dark:border-neutral-800'}`}>
+                    <div className={`relative group max-w-[90%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${msg.role === 'user' ? 'bg-brand-primary text-white rounded-br-none' : 'bg-white dark:bg-neutral-800 text-gray-800 dark:text-gray-200 rounded-bl-none border border-gray-100 dark:border-gray-700'}`}>
                         {msg.files && msg.files.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-2">
                                 {msg.files.map((f, i) => (
@@ -176,7 +176,7 @@ const MemoizedInputArea = React.memo(({ onSend, onFileChange, onPaste, isScreenS
                 ))}
             </div>
 
-            <div className="relative flex items-end gap-1 bg-white dark:bg-neutral-950 rounded-[1.75rem] p-2 shadow-lg border border-neutral-200 dark:border-neutral-800 focus-within:border-brand-primary/50 transition-all">
+            <div className="relative flex items-end gap-1 bg-gray-100 dark:bg-neutral-800 rounded-[2rem] p-1.5 shadow-inner border border-transparent focus-within:border-brand-primary/40 transition-all">
                 <input type="file" multiple ref={fileInputRef} className="hidden" onChange={onFileChange} accept="*" />
                 <div className="flex flex-row items-center gap-1 flex-none pb-1">
                     <button onClick={() => (fileInputRef.current as any)?.click()} className="p-2 text-neutral-400 hover:text-brand-primary rounded-full" title="Adjuntar desde PC"><Icon name="plus" className="w-5 h-5" /></button>
@@ -242,7 +242,6 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
     const [isInternalFullScreen, setIsInternalFullScreen] = useState(false);
     const [isCapabilitiesModalOpen, setIsCapabilitiesModalOpen] = useState(false);
     const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
-    const [isToolsDrawerOpen, setIsToolsDrawerOpen] = useState(false);
     const [assigningArtifact, setAssigningArtifact] = useState<any>(null);
 
     const shouldAutoScrollRef = useRef(true);
@@ -929,7 +928,7 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
     };
 
     const renderChatContent = () => (
-        <div className={`flex flex-col h-full bg-white dark:bg-[#080808] border border-neutral-200/70 dark:border-neutral-900 ${pipWindow ? 'w-full rounded-none' : 'rounded-[1.75rem] shadow-xl'} ${isInternalFullScreen ? 'fixed inset-0 z-[160000] !rounded-none border-none' : ''}`}>
+        <div className={`flex flex-col h-full bg-gradient-to-br from-white via-neutral-50 to-brand-primary/5 dark:from-[#070707] dark:via-[#0b0b0b] dark:to-brand-primary/10 border border-neutral-200/70 dark:border-neutral-800 ${pipWindow ? 'w-full rounded-none' : 'rounded-[2rem] shadow-2xl'} ${isInternalFullScreen ? 'fixed inset-0 z-[160000] !rounded-none border-none' : ''}`}>
              
             {/* Modal para asignar a proyecto */}
             <Modal isOpen={isAssignModalOpen} onClose={() => { setAssignModalOpen(false); setAssigningArtifact(null); }} title="Enviar a Proyecto">
@@ -957,80 +956,85 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
                 </div>
             </Modal>
 
-            <Modal isOpen={isToolsDrawerOpen} onClose={() => setIsToolsDrawerOpen(false)} title="Herramientas del Chat" className="max-w-3xl">
-                <div className="space-y-5">
-                    <div className="rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-4">
-                        <PlanCreditBadge showStorage />
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <button onClick={() => { setCurrentView('projects'); setIsToolsDrawerOpen(false); }} className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-brand-primary text-left transition-all"><Icon name="projects" className="w-5 h-5 text-brand-primary mb-2"/><p className="text-[10px] font-black uppercase">Proyectos</p><p className="text-[9px] text-neutral-400">{projects.length} activos</p></button>
-                        <button onClick={() => { setCurrentView('globalCalendar'); setIsToolsDrawerOpen(false); }} className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-brand-primary text-left transition-all"><Icon name="calendar" className="w-5 h-5 text-brand-primary mb-2"/><p className="text-[10px] font-black uppercase">Calendario</p><p className="text-[9px] text-neutral-400">Agenda y tareas</p></button>
-                        <button onClick={() => { setCurrentView('drive'); setIsToolsDrawerOpen(false); }} className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-brand-primary text-left transition-all"><Icon name="folder" className="w-5 h-5 text-brand-primary mb-2"/><p className="text-[10px] font-black uppercase">Drive</p><p className="text-[9px] text-neutral-400">Archivos</p></button>
-                        <button onClick={() => { setIsCapabilitiesModalOpen(true); setIsToolsDrawerOpen(false); }} className="p-4 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-brand-primary text-left transition-all"><Icon name="help" className="w-5 h-5 text-brand-primary mb-2"/><p className="text-[10px] font-black uppercase">Manual</p><p className="text-[9px] text-neutral-400">Comandos</p></button>
-                    </div>
-                    <div className="rounded-3xl bg-brand-primary/5 border border-brand-primary/10 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-brand-primary">Memoria contextual</p>
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">El chat usa contexto del mismo usuario, proyecto activo, agenda, Drive y conversaciones recientes sin mezclar datos de otros usuarios. Todo sigue guardado como antes; solo limpiamos la interfaz.</p>
-                    </div>
-                </div>
-            </Modal>
-
-             <div className="px-3 sm:px-5 py-3 border-b border-neutral-200/70 dark:border-neutral-900 flex items-center justify-between gap-3 bg-white/95 dark:bg-[#080808]/95 backdrop-blur-2xl z-50">
-                    <div className="flex items-center gap-3 min-w-0">
-                         <div className="w-9 h-9 rounded-full bg-neutral-900 dark:bg-white flex items-center justify-center text-white dark:text-neutral-900 shadow-sm flex-shrink-0">
-                             <Icon name="ai" className="w-5 h-5" />
+             <div className="p-3 sm:p-4 border-b border-light-border/70 dark:border-dark-border/70 flex items-center justify-between gap-2 bg-white/80 dark:bg-neutral-950/80 backdrop-blur-2xl z-50 shadow-sm">
+                    <div className="flex items-center gap-3 flex-shrink min-w-0">
+                         <div className="w-10 h-10 rounded-2xl bg-brand-primary flex items-center justify-center text-white shadow-lg flex-shrink-0">
+                             <Icon name="ai" className="w-6 h-6" />
                          </div>
                          <div className="min-w-0 flex flex-col">
                             {isGlobal ? (
-                                <select value={activeGlobalChatId} onChange={e => setActiveGlobalChatId(e.target.value)} className="bg-transparent font-black text-neutral-900 dark:text-white focus:ring-0 cursor-pointer p-0 border-none leading-none text-sm sm:text-base truncate max-w-[180px] sm:max-w-[280px]">
+                                <select value={activeGlobalChatId} onChange={e => setActiveGlobalChatId(e.target.value)} className="bg-transparent font-black text-neutral-900 dark:text-white focus:ring-0 cursor-pointer p-0 border-none leading-none text-sm truncate max-w-[150px]">
                                     {globalChats.map(chat => <option key={chat.id} value={chat.id}>{chat.name}</option>)}
                                 </select>
-                            ) : <h3 className="font-black text-neutral-900 dark:text-white tracking-tight truncate max-w-[220px]">Agente IA</h3>}
+                            ) : <h3 className="font-black text-neutral-900 dark:text-white uppercase tracking-tighter truncate max-w-[120px]">Agente IA</h3>}
                             <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className={`flex h-1.5 w-1.5 rounded-full flex-shrink-0 ${isScreenSharingGlobal ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></span>
-                                <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest truncate">{isScreenSharingGlobal ? 'viendo pantalla' : 'listo'}</span>
+                                <span className={`flex h-2 w-2 rounded-full flex-shrink-0 ${isScreenSharingGlobal ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></span>
+                                <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest truncate">{isScreenSharingGlobal ? 'Ojos de Shivo On' : 'En Línea'}</span>
                             </div>
                          </div>
                     </div>
 
-                    <div className="hidden lg:flex flex-1 justify-center px-2 pointer-events-none">
-                        <PlanCreditBadge compact className="max-w-fit pointer-events-auto" />
+                    <div className="hidden md:flex flex-1 justify-center px-2">
+                        <PlanCreditBadge compact className="max-w-fit" />
                     </div>
 
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
+                        <div className="hidden sm:flex flex-col items-end px-2 border-l border-neutral-100 dark:border-neutral-800">
+                            <p className="text-[7px] font-black text-neutral-400 uppercase tracking-[0.1em]">IA hoy</p>
+                            <p className="text-[9px] font-bold text-brand-primary">
+                                {used}/{limit === 999999 ? '∞' : limit} · pend. {pending === 999999 ? '∞' : pending}
+                            </p>
+                        </div>
+                        
                         {!isScreenSharingGlobal && (
-                            <>
-                                <button onClick={addNewGlobalChat} className="p-2 text-neutral-500 hover:text-brand-primary hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition-colors" title="Nuevo Chat"><Icon name="plus" className="w-5 h-5"/></button>
-                                <button onClick={() => setAssignModalOpen(true)} className="hidden sm:flex p-2 text-neutral-500 hover:text-brand-primary hover:bg-neutral-100 dark:hover:bg-neutral-900 rounded-full transition-colors" title="Asignar Proyecto"><Icon name="projects" className="w-5 h-5"/></button>
-                                <button onClick={() => isGlobal && deleteGlobalChat(activeGlobalChatId)} className="hidden sm:flex p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-full transition-colors" title="Borrar Chat"><Icon name="trash" className="w-5 h-5"/></button>
-                            </>
+                            <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+                                <button onClick={addNewGlobalChat} className="p-1.5 sm:p-2 flex-shrink-0 text-brand-primary hover:bg-brand-primary/10 rounded-xl transition-colors" title="Nuevo Chat"><Icon name="plus" className="w-4 sm:w-5 h-4 sm:h-5"/></button>
+                                <button onClick={() => setAssignModalOpen(true)} className="p-1.5 sm:p-2 flex-shrink-0 text-neutral-500 hover:text-brand-primary transition-colors" title="Asignar Proyecto"><Icon name="projects" className="w-4 sm:w-5 h-4 sm:h-5"/></button>
+                                <button onClick={() => isGlobal && deleteGlobalChat(activeGlobalChatId)} className="p-1.5 sm:p-2 flex-shrink-0 text-neutral-400 hover:text-red-500 transition-colors" title="Borrar Chat"><Icon name="trash" className="w-4 sm:w-5 h-4 sm:h-5"/></button>
+                            </div>
                         )}
-                        <button onClick={handleToggleScreenShare} className={`p-2 rounded-full transition-all flex-shrink-0 ${isScreenSharingGlobal ? 'bg-red-600 text-white animate-pulse' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900'}`} title="Compartir / analizar pantalla">
-                            <Icon name="monitor" className="w-5 h-5"/>
+                        <button onClick={handleToggleScreenShare} className={`p-1.5 sm:p-2.5 rounded-xl transition-all shadow-md flex-shrink-0 ${isScreenSharingGlobal ? 'bg-red-600 text-white animate-pulse' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Visión HUD">
+                            <Icon name="monitor" className="w-4 sm:w-5 h-4 sm:h-5"/>
                         </button>
-                        <button onClick={() => setIsToolsDrawerOpen(true)} className="p-2 rounded-full text-neutral-500 hover:text-brand-primary hover:bg-neutral-100 dark:hover:bg-neutral-900 transition-all" title="Herramientas">
-                            <Icon name="settings" className="w-5 h-5"/>
+                        <button onClick={() => setIsInternalFullScreen(!isInternalFullScreen)} className={`p-1.5 sm:p-2.5 rounded-xl transition-all shadow-md flex-shrink-0 ${isInternalFullScreen ? 'bg-brand-primary text-white' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800'}`} title="Pantalla Completa">
+                            <Icon name={isInternalFullScreen ? "close" : "expand"} className="w-4 sm:w-5 h-4 sm:h-5"/>
                         </button>
-                        <button onClick={() => setIsInternalFullScreen(!isInternalFullScreen)} className={`p-2 rounded-full transition-all flex-shrink-0 ${isInternalFullScreen ? 'bg-brand-primary text-white' : 'text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900'}`} title="Pantalla Completa">
-                            <Icon name={isInternalFullScreen ? "close" : "expand"} className="w-5 h-5"/>
+                        <button onClick={() => setIsCapabilitiesModalOpen(true)} className="p-1.5 sm:p-2.5 rounded-xl flex-shrink-0 text-neutral-500 hover:text-brand-primary transition-all hover:bg-neutral-100 dark:hover:bg-neutral-800" title="Manual de Shivo">
+                            <Icon name="help" className="w-4 h-4 sm:w-5 h-5"/>
                         </button>
                     </div>
                 </div>
 
-                <div className="hidden md:flex items-center justify-center gap-2 px-4 py-2 bg-white dark:bg-[#080808] border-b border-neutral-100 dark:border-neutral-900 overflow-x-auto no-scrollbar">
-                    <button onClick={() => projectContext && setSelectedProjectId(projectContext.id)} className="px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-300 text-[10px] font-bold border border-neutral-200 dark:border-neutral-800 flex-shrink-0 hover:border-brand-primary hover:text-brand-primary transition-all">
+                <div className="hidden lg:flex items-center gap-2 px-4 py-2 border-b border-neutral-100/70 dark:border-neutral-900 bg-white/55 dark:bg-black/20 backdrop-blur-xl overflow-x-auto no-scrollbar">
+                    <span className="text-[8px] font-black uppercase tracking-[0.24em] text-neutral-400 flex-shrink-0">Contexto activo</span>
+                    <button onClick={() => projectContext && setSelectedProjectId(projectContext.id)} className="px-3 py-1.5 rounded-full bg-brand-primary/10 text-brand-primary text-[9px] font-black uppercase tracking-widest border border-brand-primary/20 flex-shrink-0">
                         {projectContext ? `Proyecto: ${projectContext.name}` : 'Chat global'}
                     </button>
-                    <button onClick={() => setCurrentView('drive')} className="px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-900 text-neutral-500 text-[10px] font-bold border border-neutral-200 dark:border-neutral-800 flex-shrink-0 hover:border-brand-primary hover:text-brand-primary transition-all">Drive</button>
-                    <button onClick={() => setCurrentView('globalCalendar')} className="px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-900 text-neutral-500 text-[10px] font-bold border border-neutral-200 dark:border-neutral-800 flex-shrink-0 hover:border-brand-primary hover:text-brand-primary transition-all">Calendario</button>
-                    <button onClick={() => setIsCapabilitiesModalOpen(true)} className="px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-900 text-neutral-500 text-[10px] font-bold border border-neutral-200 dark:border-neutral-800 flex-shrink-0 hover:border-brand-primary hover:text-brand-primary transition-all">Manual</button>
-                    {recentChatMemory.slice(0, 2).map(item => (
-                        <button key={item.chat} onClick={() => setStartupPrompt(`Retoma contexto del chat ${item.chat} y ayúdame a seguir.`)} className="px-3 py-1.5 rounded-full bg-white dark:bg-neutral-950 text-neutral-400 text-[10px] font-bold border border-neutral-200 dark:border-neutral-800 flex-shrink-0 hover:border-brand-primary hover:text-brand-primary transition-all">{item.chat}</button>
+                    <button onClick={() => setCurrentView('drive')} className="px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-900 text-neutral-500 text-[9px] font-black uppercase tracking-widest border border-neutral-200 dark:border-neutral-800 flex-shrink-0">Drive protegido</button>
+                    <button onClick={() => setCurrentView('globalCalendar')} className="px-3 py-1.5 rounded-full bg-neutral-100 dark:bg-neutral-900 text-neutral-500 text-[9px] font-black uppercase tracking-widest border border-neutral-200 dark:border-neutral-800 flex-shrink-0">Calendario</button>
+                    {recentChatMemory.slice(0, 3).map(item => (
+                        <button key={item.chat} onClick={() => setStartupPrompt(`Retoma contexto del chat ${item.chat} y ayúdame a seguir.`)} className="px-3 py-1.5 rounded-full bg-white dark:bg-neutral-900 text-neutral-500 text-[9px] font-black uppercase tracking-widest border border-neutral-200 dark:border-neutral-800 flex-shrink-0 hover:border-brand-primary hover:text-brand-primary">{item.chat}</button>
                     ))}
                 </div>
 
-                <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 sm:px-6 py-6 custom-scrollbar bg-white dark:bg-[#080808] pb-32 lg:pb-6 relative">
-                    <div className="w-full max-w-4xl mx-auto space-y-6">
+                <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-gradient-to-b from-neutral-50 via-white to-neutral-100 dark:from-[#0d0d0d] dark:via-[#090909] dark:to-black pb-32 lg:pb-4 relative">
+                    <aside className="hidden xl:block sticky top-0 float-right w-72 ml-4 mb-4 z-10">
+                        <div className="rounded-[1.75rem] border border-neutral-200/80 dark:border-neutral-800 bg-white/85 dark:bg-neutral-950/85 backdrop-blur-2xl p-4 shadow-xl space-y-3">
+                            <div>
+                                <p className="text-[8px] font-black uppercase tracking-[0.24em] text-neutral-400">Panel inteligente</p>
+                                <h4 className="text-sm font-black text-neutral-900 dark:text-white">Centro operativo</h4>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button onClick={() => setCurrentView('projects')} className="rounded-2xl bg-neutral-50 dark:bg-neutral-900 p-3 text-left border border-neutral-100 dark:border-neutral-800 hover:border-brand-primary"><Icon name="projects" className="w-4 h-4 text-brand-primary mb-2"/><p className="text-[9px] font-black uppercase">Proyectos</p><p className="text-[8px] text-neutral-400">{projects.length} activos</p></button>
+                                <button onClick={() => setCurrentView('globalCalendar')} className="rounded-2xl bg-neutral-50 dark:bg-neutral-900 p-3 text-left border border-neutral-100 dark:border-neutral-800 hover:border-brand-primary"><Icon name="calendar" className="w-4 h-4 text-brand-primary mb-2"/><p className="text-[9px] font-black uppercase">Agenda</p><p className="text-[8px] text-neutral-400">Tareas + meets</p></button>
+                            </div>
+                            <PlanCreditBadge showStorage className="!shadow-none" />
+                            <div className="rounded-2xl bg-brand-primary/5 border border-brand-primary/10 p-3">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-brand-primary">Memoria cruzada</p>
+                                <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">Shivo puede usar contexto de tus chats recientes del mismo usuario, proyectos, agenda, correos conectados y Drive sin mezclar datos de otros usuarios.</p>
+                            </div>
+                        </div>
+                    </aside>
                     <MessageList 
                         history={memoizedHistory}
                         isLoading={isLoading}
@@ -1043,7 +1047,6 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
                         scrollToBottom={scrollToBottom}
                         onSendToProject={handleSendToProject}
                     />
-                    </div>
                     {!isAtBottom && isLoading && (
                         <div className="sticky bottom-2 left-1/2 -translate-x-1/2 z-50">
                             <button 
@@ -1058,8 +1061,8 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
                 </div>
 
                 {/* BOTÓN DE MENÚ DE TEXTO BAJADO HASTA EL FINAL v12.5 - NO EXTRA PADDING */}
-                <div className="flex-none px-3 sm:px-6 pb-4 pt-2 bg-white/95 dark:bg-[#080808]/95 backdrop-blur-2xl border-t border-neutral-100 dark:border-neutral-900 z-[150] sticky bottom-0 shadow-[0_-16px_48px_rgba(0,0,0,0.06)]">
-                    <div className="w-full max-w-4xl mx-auto">
+                <div className="flex-none p-2 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-2xl border-t border-light-border/70 dark:border-dark-border/70 z-[150] fixed bottom-0 left-0 right-0 lg:relative lg:bottom-0 shadow-[0_-20px_60px_rgba(0,0,0,0.08)]">
+                    <div className="p-2 sm:p-4">
                         {attachedFiles.length > 0 && (
                             <div className="flex flex-wrap gap-3 mb-3 p-2.5 bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl animate-subtle-slide-in-up shadow-sm">
                                 {attachedFiles.map((file, idx) => (

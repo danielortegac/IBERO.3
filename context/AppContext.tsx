@@ -236,6 +236,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const stopLiveSessionCallback = useRef<(() => void) | null>(null);
   const lastTaskCheckRef = useRef<string>("");
+  const usageSyncKeyRef = useRef<string>("");
 
   const registerLiveSession = (callback: () => void) => {
       stopLiveSessionCallback.current = callback;
@@ -592,7 +593,13 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                       localStorage.setItem('goatify_user_profile', JSON.stringify(fullProfile));
                       setOnboardingComplete(true);
                       setIntisBalanceState(data.intisBalance || 0);
-                      if (data.plan) await syncUserUsage(user.uid, data.plan);
+                      if (data.plan) {
+                          const nextUsageSyncKey = `${user.uid}:${data.plan}:${data.subscriptionStatus || 'active'}`;
+                          if (usageSyncKeyRef.current !== nextUsageSyncKey) {
+                              usageSyncKeyRef.current = nextUsageSyncKey;
+                              syncUserUsage(user.uid, data.plan).catch(err => console.warn("Usage ensure skipped:", err?.message || err));
+                          }
+                      }
                       if (data.country === 'United States' || data.country === 'Canada') { setLanguage('en'); } else { setLanguage('es'); }
                   } else { setUserProfile(initialUserProfile); setOnboardingComplete(false); }
               }, (err) => {
@@ -601,10 +608,21 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
               usageUnsub = onSnapshot(doc(db, "user_usage", user.uid), (docSnap) => { 
                   if (docSnap.exists()) { 
-                      setUserUsage(docSnap.data() as UserUsage); 
-                  } 
+                      const usageData = docSnap.data() as UserUsage;
+                      setUserUsage(usageData);
+                      try { localStorage.setItem(`goatify_user_usage_${user.uid}`, JSON.stringify(usageData)); } catch {}
+                  } else {
+                      try {
+                          const cachedUsage = localStorage.getItem(`goatify_user_usage_${user.uid}`);
+                          if (cachedUsage) setUserUsage(JSON.parse(cachedUsage) as UserUsage);
+                      } catch {}
+                  }
               }, (err) => {
                   console.warn("Usage snapshot delayed:", err.code);
+                  try {
+                      const cachedUsage = localStorage.getItem(`goatify_user_usage_${user.uid}`);
+                      if (cachedUsage) setUserUsage(JSON.parse(cachedUsage) as UserUsage);
+                  } catch {}
               });
               
               // Record access ONCE per session to avoid infinite loop
@@ -1185,7 +1203,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const checkMeetingLimit = async () => { return await handleLimitCheck('meeting_create'); };
   
   const uploadImageToStorage = async (base64: string) => { if (!currentUser) return ''; const size = Math.round((base64.length * 3) / 4); const { url } = await uploadStringWithQuotaCheck({ userId: currentUser.uid, data: base64, format: 'data_url', sizeBytes: size, path: safeStoragePath('ai-images', currentUser.uid, `${Date.now()}.png`), metadata: { contentType: 'image/png' }, plan: userProfile.plan }); return url; };
-  const updateUserProfile = async (uid: string, data: Partial<UserProfile>) => { await setDoc(doc(db, "users", uid), data, { merge: true }); if (currentUser && uid === currentUser.uid) { const currentProfile = JSON.parse(localStorage.getItem('goatify_user_profile') || '{}'); const updatedProfile = {...currentProfile, ...data }; localStorage.setItem('goatify_user_profile', JSON.stringify(updatedProfile)); setUserProfile(updatedProfile); if (data.plan) { await syncUserUsage(uid, data.plan); } } };
+  const updateUserProfile = async (uid: string, data: Partial<UserProfile>) => { await setDoc(doc(db, "users", uid), data, { merge: true }); if (currentUser && uid === currentUser.uid) { const currentProfile = JSON.parse(localStorage.getItem('goatify_user_profile') || '{}'); const updatedProfile = {...currentProfile, ...data }; localStorage.setItem('goatify_user_profile', JSON.stringify(updatedProfile)); setUserProfile(updatedProfile); if (data.plan) { const nextUsageSyncKey = `${uid}:${data.plan}:${updatedProfile.subscriptionStatus || 'active'}`; if (usageSyncKeyRef.current !== nextUsageSyncKey) { usageSyncKeyRef.current = nextUsageSyncKey; await syncUserUsage(uid, data.plan); } } } };
   
   const addProject = async (project: Omit<Project, 'id'>, isAutomatic: boolean = false) => { 
     if (!currentUser) throw new Error("Not logged in"); 
