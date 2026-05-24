@@ -154,6 +154,8 @@ export interface WebDevMessage {
 export interface SocialPost {
     id?: string;
     campaignId?: string;
+    brandId?: string;
+    brandName?: string;
     platform: string;
     format?: string;
     content: string;
@@ -162,9 +164,14 @@ export interface SocialPost {
     cta?: string;
     imagePrompt?: string;
     photoPrompt?: string;
+    imageAspectRatio?: string;
+    mediaFormat?: string;
     videoPrompt?: string;
     videoBrief?: string;
+    videoScript?: string;
     shotList?: string[];
+    videoScenes?: string[];
+    onScreenText?: string[];
     visualCues?: string;
     adBrief?: string;
     targetingSuggestion?: string;
@@ -189,6 +196,8 @@ export interface SocialCampaign {
     offer?: string;
     tone?: string;
     networks: string[];
+    brandId?: string;
+    brandName?: string;
     audience?: string;
     industry?: string;
     campaignMode?: string;
@@ -205,14 +214,45 @@ export interface SocialCampaign {
 
 export interface SocialCalendarItem {
     id: string;
+    eventType?: 'social_post';
     campaignId: string;
+    campaignName?: string;
     postId: string;
     ownerId: string;
+    brandId?: string;
+    brandName?: string;
     platform: string;
     title: string;
+    copy?: string;
+    hashtags?: string;
+    imagePrompt?: string;
+    videoPrompt?: string;
+    publishUrl?: string;
     scheduledAt: string;
+    reminderAt?: string;
     reminderMinutes: number;
     status: 'scheduled' | 'ready' | 'published' | 'missed';
+}
+
+export interface SocialBrandProfile {
+    id: string;
+    ownerId: string;
+    name: string;
+    description?: string;
+    audience?: string;
+    tone?: string;
+    offer?: string;
+    whatsapp?: string;
+    links?: string;
+    hashtagsBase?: string;
+    wordsYes?: string;
+    wordsNo?: string;
+    visualStyle?: string;
+    ctas?: string;
+    objections?: string;
+    contentMemory?: string;
+    createdAt: string;
+    updatedAt: string;
 }
 
 export interface PresentationSlide {
@@ -981,7 +1021,7 @@ export interface AdminUserData {
     usage: UserUsage | null;
 }
 
-export type View = 'dashboard' | 'projects' | 'globalCalendar' | 'discovery' | 'hub' | 'wallet' | 'partners' | 'aiStudio' | 'profile' | 'calls' | 'sales_room' | 'drive' | 'scheduler' | 'chill' | 'mail';
+export type View = 'dashboard' | 'projects' | 'globalCalendar' | 'discovery' | 'hub' | 'wallet' | 'partners' | 'aiStudio' | 'profile' | 'calls' | 'sales_room' | 'drive' | 'scheduler' | 'chill' | 'mail' | 'campus';
 export type HubView = 'feed' | 'groups' | 'messages' | 'marketplace' | 'jobs' | 'people';
 export type AiStudioView = 'chat' | 'live' | 'webProgrammer' | 'mediaGenerator' | 'imageEditor' | 'videoInsights' | 'audioTools' | 'agents' | 'formBuilder' | 'presentations' | 'socialManager' | 'webSearch';
 export type ProjectSubView = 'overview' | 'info' | 'tasks' | 'spreadsheet' | 'documents' | 'notepad' | 'drawingpad' | 'financials' | 'chat' | 'members' | 'crm' | 'loyalty' | 'pos';

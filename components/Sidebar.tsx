@@ -9,6 +9,8 @@ import type { Translations } from '../localization/en';
 import NotificationsPanel from './NotificationsPanel';
 import { useSwipe } from '../hooks/useSwipe';
 
+const CAMPUS_URL = 'https://qlase.goatify.app/';
+
 interface SidebarProps {
   isMobileOpen: boolean;
   setMobileOpen: (isOpen: boolean) => void;
@@ -106,6 +108,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setMobileOpen, onToggle
     { name: 'hub', label: t('hub'), icon: 'message' },
     { name: 'wallet', label: t('intisWallet'), icon: 'wallet' },
     { name: 'aiStudio', label: t('aiStudio'), icon: 'studio' },
+    { name: 'campus' as any, label: 'Campus', icon: 'book' },
     { name: 'chill' as any, label: '🎮 Chill', icon: 'rocket' },
     { name: 'partners', label: t('partners'), icon: 'partners' },
     { name: 'calls' as any, label: 'Goatify Meets', icon: 'video' },
@@ -117,6 +120,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen, setMobileOpen, onToggle
     e.preventDefault();
     if (view as any === 'calls') {
       setMeetsInfoOpen(true);
+      if (window.innerWidth < 1024) setMobileOpen(false);
+      return;
+    }
+    if (view as any === 'campus') {
+      window.open(CAMPUS_URL, '_blank', 'noopener,noreferrer');
       if (window.innerWidth < 1024) setMobileOpen(false);
       return;
     }

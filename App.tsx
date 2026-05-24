@@ -23,6 +23,7 @@ import PublicProjectPage from './components/PublicProjectPage';
 import GoatifyScheduler from './components/GoatifyScheduler';
 const GoatifyDrive = lazy(() => import('./components/GoatifyDrive')); 
 const GoatifyMail = lazy(() => import('./components/GoatifyMail'));
+const Campus = lazy(() => import('./components/Campus'));
 import Spinner from './components/ui/Spinner';
 import Toast from './components/ui/Toast';
 
@@ -717,7 +718,7 @@ const AppContent: React.FC = () => {
                if (!currentUser && !authLoading) { localStorage.setItem('pendingCallId', parts[1]); }
                return;
           }
-          if (['dashboard', 'projects', 'globalCalendar', 'discovery', 'hub', 'wallet', 'partners', 'aiStudio', 'profile', 'sales_room', 'drive', 'chill', 'mail'].includes(mainView)) { setCurrentView(mainView); }
+          if (['dashboard', 'projects', 'globalCalendar', 'discovery', 'hub', 'wallet', 'partners', 'aiStudio', 'profile', 'sales_room', 'drive', 'chill', 'mail', 'scheduler', 'campus'].includes(mainView)) { setCurrentView(mainView); }
           if (mainView === 'projects') {
               const projectId = parts[1];
               if (projectId) {
@@ -779,6 +780,7 @@ const AppContent: React.FC = () => {
           case 'drive': return 'Goatify Drive';
           case 'mail': return 'Mailing & Campañas';
           case 'chill': return 'Goatify Chill';
+          case 'campus': return 'Campus';
           default: return 'Goatify IA';
       }
   };
@@ -883,6 +885,12 @@ const AppContent: React.FC = () => {
           </Suspense>
         );
       case 'scheduler': return <GoatifyScheduler />;
+      case 'campus':
+        return (
+          <Suspense fallback={<div className="flex items-center justify-center h-full"><Spinner /></div>}>
+            <Campus />
+          </Suspense>
+        );
       default: return <Dashboard />;
     }
   };

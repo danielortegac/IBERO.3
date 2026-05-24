@@ -2497,10 +2497,15 @@ export const generateSocialContent = async (params: {
     budget?: string;
     brandVoice?: string;
     contentUniverse?: string;
+    brandName?: string;
+    platformFormats?: any;
 }) => {
     const prompt = `Actúa como Chief Social Media Strategist, Creative Director, Performance Marketer y Copywriter senior para 2026.
 
-OBJETIVO: generar una campaña social de alto nivel, útil, accionable y lista para operar dentro de Goatify Social Media Studio.
+OBJETIVO: generar una campaña social de alto nivel, útil, accionable y lista para operar dentro de Goatify Gestor de Contenidos.
+
+MARCA SELECCIONADA:
+${params.brandName || 'No especificada'}
 
 CONTEXTO DE MARCA / PRODUCTO:
 ${params.description}
@@ -2529,8 +2534,11 @@ ${params.budget || 'Sin presupuesto definido'}
 BRAND VOICE:
 ${params.brandVoice || params.tone}
 
-UNIVERSO DE CONTENIDO DEL USUARIO:
+CENTRO DE MARCA / MEMORIA ESTRATÉGICA DEL USUARIO:
 ${params.contentUniverse || 'Sin memoria adicional.'}
+
+FORMATOS VISUALES RECOMENDADOS POR PLATAFORMA:
+${JSON.stringify(params.platformFormats || {}, null, 2)}
 
 REDES A GENERAR:
 ${params.networks.join(', ')}
@@ -2545,10 +2553,13 @@ REGLAS DE CALIDAD:
 7. El videoBrief debe ser operativo: escena por escena, duración sugerida, ritmo, texto en pantalla y CTA.
 8. Si hay pauta, agrega adBrief y targetingSuggestion: objetivo, audiencia, presupuesto sugerido, testing A/B, métrica a mirar.
 9. Agrega abVariants con variaciones de copy útiles.
-10. El contenido debe estar actualizado a 2026: IA, automatización, ventas, atención, comunidad, contenido corto y embudos conversacionales.
+10. El contenido debe estar actualizado a 2026: IA, automatización, ventas, atención, comunidad, contenido corto, social commerce y embudos conversacionales.
+11. Incluye imageAspectRatio y mediaFormat correctos por plataforma.
+12. Incluye videoScript, videoScenes y onScreenText para TikTok/Reels/Shorts y para cualquier red donde el video sea útil.
+13. Todo debe sonar en español claro, profesional y fácil para usuario común; evita nombres técnicos innecesarios.
 
 Devuelve SOLO un array JSON válido. Cada objeto debe tener estos campos:
-platform, format, hook, content, hashtags, cta, imagePrompt, photoPrompt, videoPrompt, videoBrief, shotList, visualCues, adBrief, targetingSuggestion, publishingChecklist, calendarSuggestion, qualityScore, abVariants.`;
+platform, format, hook, content, hashtags, cta, imagePrompt, photoPrompt, imageAspectRatio, mediaFormat, videoPrompt, videoBrief, videoScript, shotList, videoScenes, onScreenText, visualCues, adBrief, targetingSuggestion, publishingChecklist, calendarSuggestion, qualityScore, abVariants.`;
     const schema = {
         type: Type.ARRAY,
         items: {
@@ -2562,9 +2573,14 @@ platform, format, hook, content, hashtags, cta, imagePrompt, photoPrompt, videoP
                 cta: { type: Type.STRING },
                 imagePrompt: { type: Type.STRING },
                 photoPrompt: { type: Type.STRING },
+                imageAspectRatio: { type: Type.STRING },
+                mediaFormat: { type: Type.STRING },
                 videoPrompt: { type: Type.STRING },
                 videoBrief: { type: Type.STRING },
+                videoScript: { type: Type.STRING },
                 shotList: { type: Type.ARRAY, items: { type: Type.STRING } },
+                videoScenes: { type: Type.ARRAY, items: { type: Type.STRING } },
+                onScreenText: { type: Type.ARRAY, items: { type: Type.STRING } },
                 visualCues: { type: Type.STRING },
                 adBrief: { type: Type.STRING },
                 targetingSuggestion: { type: Type.STRING },
@@ -2576,7 +2592,7 @@ platform, format, hook, content, hashtags, cta, imagePrompt, photoPrompt, videoP
             required: ["platform", "content", "hashtags", "imagePrompt", "visualCues"]
         }
     };
-    const res = await executeAiWithFallback(prompt, "Chief Social Media Strategist 2026. Genera JSON válido, accionable, premium y sin relleno.", true, schema, 'chat');
+    const res = await executeAiWithFallback(prompt, "Chief Social Media Strategist 2026. Genera JSON válido, accionable, premium, en español claro y sin relleno.", true, schema, 'chat');
     try {
         const parsed = JSON.parse(res);
         return Array.isArray(parsed) ? parsed : (parsed?.posts || []);

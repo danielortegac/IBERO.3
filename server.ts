@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import { createServer as createViteServer } from "vite";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import { simpleParser } from "mailparser";
@@ -303,7 +302,7 @@ async function startServer() {
 
   // --- Reminder Worker: posts sociales y reuniones próximas ---
   // Genera notificaciones internas; el Push Guard global las entrega al celular/escritorio si existe suscripción.
-  const reminderWorkerEnabled = process.env.ENABLE_REMINDER_WORKER !== "false";
+  const reminderWorkerEnabled = process.env.ENABLE_REMINDER_WORKER === "true";
   const reminderWorkerIntervalMs = Number(process.env.REMINDER_WORKER_INTERVAL_MS || 60000);
   const reminderLookaheadMinutes = Number(process.env.REMINDER_LOOKAHEAD_MINUTES || 90);
 
@@ -4458,8 +4457,10 @@ async function startServer() {
     });
   });
 
-  // Vite middleware para desarrollo
+  // Vite middleware solo para desarrollo.
+  // IMPORTANTE: no importar vite en producción, porque Docker instala solo dependencies.
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
