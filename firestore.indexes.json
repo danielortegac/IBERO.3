@@ -1,0 +1,12 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "socialCalendar",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "scheduledAt", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

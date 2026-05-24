@@ -1,0 +1,10 @@
+{
+  "name": "Remix: wwwwwowwow goati pro max",
+  "description": "Integrated productivity suite with high-precision meeting management, CRM automation, and loyalty rewards system.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": []
+}

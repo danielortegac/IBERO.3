@@ -1,0 +1,23 @@
+
+{
+  "name": "Goatify IA",
+  "short_name": "Goatify",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "https://firebasestorage.googleapis.com/v0/b/goatify-app-ia.firebasestorage.app/o/Logos%20HD.png?alt=media&token=293a80b4-b5b8-4249-8d57-cc4925598747",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://firebasestorage.googleapis.com/v0/b/goatify-app-ia.firebasestorage.app/o/edited_ChatGPT%20Image%2015%20nov%202025%2C%2023_32_54.png?alt=media&token=90739c3a-9250-4930-9abd-9c2cbe1f2cc6",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

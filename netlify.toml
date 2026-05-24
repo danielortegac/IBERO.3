@@ -1,0 +1,17 @@
+# OPCIONAL: usar solo si más adelante separas frontend en Netlify y backend en Cloud Run.
+# Para la versión actual recomendada, despliega todo en Cloud Run.
+
+[build]
+command = "npm run build"
+publish = "dist"
+
+[[redirects]]
+from = "/api/*"
+to = "https://TU-BACKEND-CLOUD-RUN.run.app/api/:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200
