@@ -1,10 +1,11 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import './styles.css';
 import App from './App';
 import { AppContextProvider } from './context/AppContext';
 
-console.log("BUILD_ID: gemini-backend-only-v-final");
+console.log("BUILD_ID: goatify-v18-brand-admin-tailwind-storage-mj");
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

@@ -788,7 +788,7 @@ const Hub: React.FC = () => {
                 const uploaded = await uploadWithQuotaCheck({
                     userId: currentUser?.uid || userProfile.uid,
                     data: groupMediaToSend.file,
-                    path: safeStoragePath('hub-media', activeConversationData.id, `${Date.now()}_${groupMediaToSend.file.name}`),
+                    path: safeStoragePath('hub-media', currentUser?.uid || userProfile.uid, activeConversationData.id, `${Date.now()}_${groupMediaToSend.file.name}`),
                     sizeBytes: groupMediaToSend.file.size,
                     metadata: { contentType: groupMediaToSend.file.type || 'application/octet-stream' },
                     plan: userProfile.plan

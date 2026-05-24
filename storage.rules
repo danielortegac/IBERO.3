@@ -1,0 +1,135 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return signedIn() && request.auth.token.email in [
+        'deoc29@gmail.com',
+        'deoc29@hotmail.com',
+        'vaoc93@hotmail.com',
+        'info@goatify.app'
+      ];
+    }
+
+    function owns(userId) {
+      return signedIn() && (request.auth.uid == userId || isSuperAdmin());
+    }
+
+    function safeFile() {
+      return request.resource == null || (
+        request.resource.size < 50 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*|video/.*|audio/.*|application/pdf|text/.*|application/json|application/zip|application/vnd.*|application/msword|application/octet-stream')
+      );
+    }
+
+    // V18: todas las rutas de escritura quedan bajo userId/ownerId explícito.
+    match /drive/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /users/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /avatars/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /article-images/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /receipts/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /crm-logos/{userId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /crm-issuer-logos/{userId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /crm-docs/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /video-uploads/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /web-dev-images/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /ai-images/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /stickers/{userId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /direct-messages/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /hub-posts/{userId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /hub-media/{userId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /pos-images/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /social-brands/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /projects/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /project-logos/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /agents/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if owns(userId) && safeFile();
+    }
+
+    match /agent-voices/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    match /vouchers/{userId}/{allPaths=**} {
+      allow read, write, delete: if owns(userId) && safeFile();
+    }
+
+    // Fallback: solo Súper Admin puede escribir rutas no migradas.
+    match /{allPaths=**} {
+      allow read: if true;
+      allow write, delete: if isSuperAdmin() && safeFile();
+    }
+  }
+}

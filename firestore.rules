@@ -103,6 +103,11 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin();
     }
 
+    match /users/{userId}/usage_operations/{id} {
+      allow read: if isOwner(userId) || isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
     // 3. ESTADÍSTICAS GLOBALES (stats)
     match /stats/{docId} {
       allow read: if isAuthenticated();

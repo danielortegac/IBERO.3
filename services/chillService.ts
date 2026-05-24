@@ -1,11 +1,8 @@
-import { doc, getDoc, setDoc, updateDoc, increment, collection, query, orderBy, limit, getDocs, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, increment, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 
 export interface ChillProfile {
   uid: string;
-  displayName?: string;
-  avatarUrl?: string | null;
-  email?: string;
   xp: number;
   dailyProgress: number; // 0 to 10
   lastPlayedDate: string; // YYYY-MM-DD
@@ -94,20 +91,6 @@ export const getChillProfile = async (uid: string): Promise<ChillProfile> => {
   }
 };
 
-
-export const syncChillIdentity = async (uid: string, identity: { displayName?: string; avatarUrl?: string | null; email?: string }) => {
-  if (!uid) return;
-  const cleanName = (identity.displayName || identity.email?.split('@')[0] || 'Jugador Goatify').trim();
-  const docRef = doc(db, 'chill_profiles', uid);
-  await setDoc(docRef, {
-    uid,
-    displayName: cleanName,
-    avatarUrl: identity.avatarUrl || null,
-    email: identity.email || '',
-    identityUpdatedAt: serverTimestamp()
-  }, { merge: true });
-};
-
 export const addChillProgress = async (uid: string, game: 'dinoRun' | 'neonSnake' | 'neonTetris' | 'brickBreaker' | 'goatKong' | 'flappyGoat' | '2048' | 'memoryMatch' | 'whackAMole' | 'pacman' | 'sudoku' | 'towerStack' | 'goatSniper' | 'superGoatBros' | 'goatInvaders' | 'goatRacer' | 'chess' | 'pianoMaster' | 'poker' | 'blackjack' | 'solitaire' | 'wordSearch' | 'crossword', score: number, xpGained: number, hitMilestone: boolean = false) => {
   const profile = await getChillProfile(uid);
   const today = getTodayString();
@@ -157,14 +140,9 @@ export const getGlobalLeaderboard = async (game: 'dinoRun' | 'neonSnake' | 'neon
     limit(10)
   );
   const snap = await getDocs(q);
-  return snap.docs.map(doc => {
-    const data = doc.data();
-    return {
-      uid: doc.id,
-      score: data.bestScores?.[game] || 0,
-      xp: data.xp || 0,
-      displayName: data.displayName || data.email?.split('@')?.[0] || '',
-      avatarUrl: data.avatarUrl || null
-    };
-  });
+  return snap.docs.map(doc => ({
+    uid: doc.id,
+    score: doc.data().bestScores[game] || 0,
+    xp: doc.data().xp || 0
+  }));
 };

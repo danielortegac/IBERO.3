@@ -451,7 +451,7 @@ export const Profile: React.FC<ProfileProps> = ({ user = null }) => {
                         userId: currentUser.uid,
                         data: file,
                         sizeBytes: file.size,
-                        path: safeStoragePath('avatars', `${currentUser.uid}_${Date.now()}`),
+                        path: safeStoragePath('avatars', currentUser.uid, `${Date.now()}_${file.name || 'avatar'}`),
                         metadata: { contentType: file.type || 'image/*' },
                         plan: loggedInUser.plan
                     });

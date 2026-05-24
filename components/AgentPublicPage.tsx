@@ -437,7 +437,7 @@ const AgentPublicPage: React.FC<AgentPublicPageProps> = ({ agentId }) => {
             const { url } = await uploadWithQuotaCheck({
                 userId: agent.ownerId,
                 data: voiceBlob,
-                path: safeStoragePath('agent-voices', agent.id, `${Date.now()}.webm`),
+                path: safeStoragePath('agent-voices', agent.ownerId, agent.id, `${Date.now()}.webm`),
                 sizeBytes: voiceBlob.size,
                 metadata: { contentType: 'audio/webm' }
             });

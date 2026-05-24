@@ -164,11 +164,12 @@ const ProjectInfoView: React.FC<ProjectInfoViewProps> = ({ project }) => {
         if (file) {
             setIsSaving(true);
             try {
-                const userId = auth.currentUser?.uid || project.ownerId || 'anonymous';
+                const userId = auth.currentUser?.uid || project.ownerId;
+                if (!userId) throw new Error('No se pudo validar el dueño del proyecto para subir el logo.');
                 const { url } = await uploadWithQuotaCheck({
                     userId,
                     data: file,
-                    path: safeStoragePath('project-logos', project.id, `${Date.now()}_${file.name}`),
+                    path: safeStoragePath('project-logos', userId, project.id, `${Date.now()}_${file.name}`),
                     sizeBytes: file.size,
                     metadata: { contentType: file.type || 'image/*' }
                 });

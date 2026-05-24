@@ -58,6 +58,14 @@ const formatAdminRelativeTime = (value: any): string => {
     return new Date(ts).toLocaleDateString();
 };
 
+const formatAdminBytes = (bytes?: number): string => {
+    const value = Math.max(0, Number(bytes || 0));
+    if (value >= 1024 ** 3) return `${(value / (1024 ** 3)).toFixed(2)} GB`;
+    if (value >= 1024 ** 2) return `${(value / (1024 ** 2)).toFixed(1)} MB`;
+    if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+    return `${value} B`;
+};
+
 const getAdminPresence = (user: UserProfile, usage?: any) => {
     const lastSeen = getTimestampMs(user.lastSeen);
     const lastUsage = getTimestampMs(usage?.counters?.last_activity);
@@ -2061,12 +2069,12 @@ const Partners: React.FC = () => {
 export default Partners;
 
 /** SUPER ADMIN DASHBOARD EXTENSION **/
-export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => void, initialTab?: 'users' | 'leads' | 'kampaigner' }> = ({ isOpen, onClose, initialTab = 'users' }) => {
+export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => void, initialTab?: 'overview' | 'users' | 'leads' | 'kampaigner' }> = ({ isOpen, onClose, initialTab = 'users' }) => {
     const { 
         getAllUsersData, performNuclearDeletion, userProfile, currentUser, 
         allLeads, updatePartnerLead, setDeepLinkTarget, setActiveHubView, 
         setCurrentView, setToastNotification, createNotification, 
-        setMailDraft, emailAccounts, isSuperAdmin, goatifyNews, automationSettings 
+        setMailDraft, emailAccounts, isSuperAdmin, goatifyNews, automationSettings, updateUserProfile 
     } = useContext(AppContext);
     const { scheduleMeeting } = useContext(CallContext);
     
@@ -2077,7 +2085,7 @@ export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => voi
     const [deletingUid, setDeletingUid] = useState<string | null>(null);
     const [userToDelete, setUserToDelete] = useState<AdminUserData | null>(null);
     const [isNuclearConfirmOpen, setIsNuclearConfirmOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'users' | 'leads' | 'kampaigner' | 'books'>(initialTab as any);
+    const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'leads' | 'kampaigner' | 'books'>(initialTab as any);
     const [adminUserFilter, setAdminUserFilter] = useState<'all' | 'online' | 'active_today' | 'alter_ego' | 'alter_paused' | 'premium' | 'high_cost'>('all');
     const [expandedUserUid, setExpandedUserUid] = useState<string | null>(null);
     const [pausingAlterEgoUid, setPausingAlterEgoUid] = useState<string | null>(null);
@@ -2138,6 +2146,23 @@ export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => voi
         }
     };
     
+    const handleMakeUserPlan = async (data: AdminUserData, plan: 'free' | 'pro' | 'premium') => {
+        if (!data.user.uid) return;
+        try {
+            const subscriptionStatus = plan === 'free' ? 'canceled' : 'active';
+            await updateUserProfile(data.user.uid, { plan, subscriptionStatus } as any);
+            setUsersData(prev => prev.map(item => item.user.uid === data.user.uid ? ({ ...item, user: { ...item.user, plan, subscriptionStatus } }) : item));
+            setToastNotification({
+                title: plan === 'free' ? 'Usuario pasado a Free' : `Usuario activado como ${plan.toUpperCase()}`,
+                message: `${data.user.name || data.user.email} fue actualizado desde el panel Súper Admin.`,
+                icon: 'check'
+            });
+        } catch (error) {
+            console.error(error);
+            setToastNotification({ title: 'Error', message: 'No se pudo actualizar el plan del usuario.', icon: 'close' });
+        }
+    };
+
     const adminSummary = useMemo(() => {
         const online = usersData.filter(d => getAdminPresence(d.user, d.usage).label === 'Online').length;
         const activeToday = usersData.filter(d => {
@@ -2147,8 +2172,32 @@ export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => voi
         const alterEgoOn = usersData.filter(d => !!d.user.alterEgo?.enabled && !d.user.alterEgo?.adminPaused).length;
         const alterPaused = usersData.filter(d => !!d.user.alterEgo?.adminPaused).length;
         const premiumActive = usersData.filter(d => d.user.plan === 'premium' && d.user.subscriptionStatus === 'active').length;
+        const proUsers = usersData.filter(d => d.user.plan === 'pro').length;
+        const freeUsers = usersData.filter(d => d.user.plan === 'free').length;
         const totalApiCost = usersData.reduce((sum, d) => sum + ((d.usage as any)?.total_cost_usd || 0), 0);
-        return { online, activeToday, alterEgoOn, alterPaused, premiumActive, totalApiCost };
+        const totals = usersData.reduce((acc, d) => {
+            const c: any = d.usage?.counters || {};
+            acc.storageBytes += c.current_storage_bytes || 0;
+            acc.images += c.monthly_images_used || 0;
+            acc.socialPosts += c.monthly_posts_used || 0;
+            acc.presentations += c.monthly_presentations_used || 0;
+            acc.webOps += c.monthly_web_ops_used || 0;
+            acc.agentResponses += c.monthly_agent_responses || 0;
+            acc.videoMinutes += c.monthly_video_minutes || 0;
+            acc.voiceMinutes += c.monthly_voice_minutes || 0;
+            acc.grounding += c.monthly_grounding_used || 0;
+            acc.crmClients += c.monthly_crm_clients_created || 0;
+            acc.meetings += c.monthly_meetings_created || 0;
+            acc.publishedSites += c.current_published_sites || 0;
+            acc.projects += c.current_projects_count || 0;
+            acc.tasks += c.current_tasks_count || 0;
+            acc.tokensIn += (d.usage as any)?.tokens_in || 0;
+            acc.tokensOut += (d.usage as any)?.tokens_out || 0;
+            return acc;
+        }, { storageBytes: 0, images: 0, socialPosts: 0, presentations: 0, webOps: 0, agentResponses: 0, videoMinutes: 0, voiceMinutes: 0, grounding: 0, crmClients: 0, meetings: 0, publishedSites: 0, projects: 0, tasks: 0, tokensIn: 0, tokensOut: 0 });
+        const highCostUsers = usersData.filter(d => ((d.usage as any)?.total_cost_usd || 0) >= 0.5).length;
+        const revenueSignal = (premiumActive * 19) + (proUsers * 9);
+        return { online, activeToday, alterEgoOn, alterPaused, premiumActive, proUsers, freeUsers, totalApiCost, highCostUsers, revenueSignal, ...totals };
     }, [usersData]);
 
     const filteredUsers = usersData
@@ -2358,7 +2407,7 @@ export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => voi
             const { url } = await uploadWithQuotaCheck({
                 userId: currentUser.uid,
                 data: file,
-                path: safeStoragePath('vouchers', leadId, `${field}_${Date.now()}_${file.name}`),
+                path: safeStoragePath('vouchers', currentUser.uid, leadId, `${field}_${Date.now()}_${file.name}`),
                 sizeBytes: file.size,
                 metadata: { contentType: file.type || 'application/octet-stream' },
                 plan: userProfile.plan
@@ -2478,8 +2527,8 @@ export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => voi
     if (!isOpen) return null;
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Panel de Comando Súper Admin Goatify" className="max-w-[95vw] h-[90vh]">
-            <div className="flex flex-col h-full">
+        <Modal isOpen={isOpen} onClose={onClose} title="Panel de Comando Súper Admin Goatify" className="max-w-[100vw] h-[100dvh] !max-h-[100dvh] !rounded-none" noPadding>
+            <div className="flex flex-col h-full min-h-0 p-4 sm:p-5 bg-neutral-50 dark:bg-neutral-950">
                 {docPreview && (
                     <LeadDocPreviewModal 
                         isOpen={!!docPreview} 
@@ -2513,7 +2562,10 @@ export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => voi
 
                 <input type="file" ref={voucherInputRef} className="hidden" accept="application/pdf,image/*" onChange={handleUploadVoucher} />
                 <div className="flex flex-wrap gap-4 sm:gap-6 mb-6 border-b dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900/50 p-2 rounded-xl items-center justify-between">
-                    <div className="flex gap-4">
+                    <div className="flex gap-3 flex-wrap">
+                        <button onClick={() => setActiveTab('overview')} className={`px-5 py-2.5 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${activeTab === 'overview' ? 'bg-neutral-950 text-white shadow-lg' : 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800'}`}>
+                            <Icon name="dashboard" className="w-4 h-4"/> Comando
+                        </button>
                         <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${activeTab === 'users' ? 'bg-brand-primary text-white shadow-lg' : 'text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800'}`}>
                             <Icon name="users" className="w-4 h-4"/> Gestión de Usuarios ({usersData.length})
                         </button>
@@ -2565,7 +2617,78 @@ export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => voi
                     </div>
                 </div>
 
-                {activeTab === 'users' ? (
+                {activeTab === 'overview' ? (
+                    <div className="flex-1 overflow-auto custom-scrollbar space-y-5 pb-8">
+                        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+                            {[
+                                { label: 'Usuarios', value: usersData.length, icon: 'users', tone: 'text-brand-primary' },
+                                { label: 'Online', value: adminSummary.online, icon: 'activity', tone: 'text-emerald-600' },
+                                { label: 'Activos 24h', value: adminSummary.activeToday, icon: 'clock', tone: 'text-amber-600' },
+                                { label: 'Free', value: adminSummary.freeUsers, icon: 'user', tone: 'text-neutral-500' },
+                                { label: 'Pro', value: adminSummary.proUsers, icon: 'rocket', tone: 'text-blue-600' },
+                                { label: 'Premium', value: adminSummary.premiumActive, icon: 'star', tone: 'text-amber-500' },
+                                { label: 'Costo IA', value: `$${adminSummary.totalApiCost.toFixed(2)}`, icon: 'wallet', tone: 'text-red-500' },
+                                { label: 'MRR señal', value: `$${adminSummary.revenueSignal}`, icon: 'chart', tone: 'text-emerald-600' }
+                            ].map((stat: any) => (
+                                <Card key={stat.label} className="p-4 border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                                    <div className="flex items-center justify-between mb-3"><Icon name={stat.icon} className={`w-5 h-5 ${stat.tone}`} /><span className="text-xl font-black tabular-nums">{stat.value}</span></div>
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{stat.label}</p>
+                                </Card>
+                            ))}
+                        </div>
+
+                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+                            <Card className="p-5 border border-neutral-200 dark:border-neutral-800 xl:col-span-2">
+                                <div className="flex items-center justify-between mb-4"><div><h3 className="text-xl font-black">Uso operativo global</h3><p className="text-xs text-neutral-500">IA, storage, contenidos, agentes, CRM y activos digitales.</p></div><Button size="sm" variant="secondary" onClick={() => setActiveTab('users')}>Administrar usuarios</Button></div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {[
+                                        ['Storage total', formatAdminBytes(adminSummary.storageBytes), 'folder'],
+                                        ['Imágenes IA', adminSummary.images, 'image'],
+                                        ['Posts social', adminSummary.socialPosts, 'share'],
+                                        ['Presentaciones', adminSummary.presentations, 'presentation'],
+                                        ['Web ops', adminSummary.webOps, 'code'],
+                                        ['Agent responses', adminSummary.agentResponses, 'agent'],
+                                        ['Grounding/Web', adminSummary.grounding, 'search'],
+                                        ['Videos/voz min', `${adminSummary.videoMinutes}/${adminSummary.voiceMinutes}`, 'video'],
+                                        ['CRM clientes', adminSummary.crmClients, 'market'],
+                                        ['Meetings', adminSummary.meetings, 'calendar'],
+                                        ['Sitios publicados', adminSummary.publishedSites, 'rocket'],
+                                        ['Proyectos/Tareas', `${adminSummary.projects}/${adminSummary.tasks}`, 'layers']
+                                    ].map(([label, value, icon]: any) => (
+                                        <div key={label} className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-100 dark:border-neutral-800">
+                                            <div className="flex items-center justify-between gap-2"><Icon name={icon} className="w-4 h-4 text-brand-primary"/><span className="text-lg font-black">{value}</span></div>
+                                            <p className="text-[9px] mt-2 uppercase tracking-widest font-black text-neutral-400">{label}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Card>
+
+                            <Card className="p-5 border border-neutral-200 dark:border-neutral-800">
+                                <h3 className="text-xl font-black mb-4">Alertas ejecutivas</h3>
+                                <div className="space-y-3 text-sm">
+                                    <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/40"><b>{adminSummary.highCostUsers}</b> usuario(s) con costo API alto.</div>
+                                    <div className="p-3 rounded-2xl bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-100 dark:border-cyan-900/40"><b>{adminSummary.alterEgoOn}</b> Alter Ego activos y <b>{adminSummary.alterPaused}</b> pausados.</div>
+                                    <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-900/40">Tokens: {(adminSummary.tokensIn + adminSummary.tokensOut).toLocaleString()} total estimado.</div>
+                                    <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/40">Tráfico registrado: {globalStats.app_views.toLocaleString()} vistas app.</div>
+                                </div>
+                            </Card>
+                        </div>
+
+                        <Card className="p-5 border border-neutral-200 dark:border-neutral-800">
+                            <div className="flex items-center justify-between mb-4"><h3 className="text-xl font-black">Top consumo IA / Storage</h3><span className="text-[10px] font-black uppercase text-neutral-400">Ranking operativo</span></div>
+                            <div className="overflow-auto custom-scrollbar">
+                                <table className="w-full text-xs min-w-[900px]">
+                                    <thead><tr className="text-left text-neutral-400 uppercase tracking-widest"><th className="p-3">Usuario</th><th className="p-3">Plan</th><th className="p-3">Costo IA</th><th className="p-3">Storage</th><th className="p-3">Posts</th><th className="p-3">Imágenes</th><th className="p-3 text-right">Acción</th></tr></thead>
+                                    <tbody className="divide-y dark:divide-neutral-800">
+                                        {[...usersData].sort((a,b) => (((b.usage as any)?.total_cost_usd || 0) + ((b.usage?.counters?.current_storage_bytes || 0) / 1e9)) - (((a.usage as any)?.total_cost_usd || 0) + ((a.usage?.counters?.current_storage_bytes || 0) / 1e9))).slice(0, 12).map(data => (
+                                            <tr key={data.user.uid} className="hover:bg-neutral-50 dark:hover:bg-neutral-900"><td className="p-3 font-bold">{data.user.name}<div className="text-[10px] text-neutral-500">{data.user.email}</div></td><td className="p-3 uppercase font-black">{data.user.plan}</td><td className="p-3 text-red-500 font-black">${((data.usage as any)?.total_cost_usd || 0).toFixed(4)}</td><td className="p-3">{formatAdminBytes(data.usage?.counters?.current_storage_bytes)}</td><td className="p-3">{data.usage?.counters?.monthly_posts_used || 0}</td><td className="p-3">{data.usage?.counters?.monthly_images_used || 0}</td><td className="p-3 text-right"><Button size="sm" variant="secondary" onClick={() => { setExpandedUserUid(data.user.uid); setActiveTab('users'); }}>Ver</Button></td></tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    </div>
+                ) : activeTab === 'users' ? (
                     <>
                         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
                             {[
@@ -2810,6 +2933,9 @@ export const SuperAdminDashboard: React.FC<{ isOpen: boolean, onClose: () => voi
                                                         >
                                                             <Icon name="search" className="w-3.5 h-3.5"/>
                                                         </button>
+                                                        <button onClick={() => handleMakeUserPlan(data, 'free')} title="Pasar a Free" className="px-2 py-1.5 bg-neutral-100 text-neutral-600 rounded-lg hover:bg-neutral-700 hover:text-white transition-all shadow-sm text-[9px] font-black uppercase">Free</button>
+                                                        <button onClick={() => handleMakeUserPlan(data, 'pro')} title="Hacer Pro" className="px-2 py-1.5 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-600 hover:text-white transition-all shadow-sm text-[9px] font-black uppercase">Pro</button>
+                                                        <button onClick={() => handleMakeUserPlan(data, 'premium')} title="Hacer Premium" className="px-2 py-1.5 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-500 hover:text-white transition-all shadow-sm text-[9px] font-black uppercase">Premium</button>
                                                         <button 
                                                             onClick={() => {
                                                                 setMailDraft({

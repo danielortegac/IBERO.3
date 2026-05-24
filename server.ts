@@ -164,20 +164,99 @@ async function startServer() {
   const PORT = Number(process.env.PORT || 3000);
   const isProduction = process.env.NODE_ENV === "production";
 
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  app.set('trust proxy', 1);
+
+  const defaultProductionOrigins = [
+    process.env.APP_URL,
+    process.env.FRONTEND_URL,
+    'https://ia.goatify.app',
+    'https://www.goatify.app',
+    'https://goatify.app'
+  ].filter(Boolean) as string[];
+
+  const allowedOrigins = Array.from(new Set((process.env.ALLOWED_ORIGINS || "")
     .split(",")
     .map(origin => origin.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .concat(isProduction ? defaultProductionOrigins : [])));
+
+  if (isProduction && allowedOrigins.length === 0) {
+    console.warn('[SECURITY] NODE_ENV=production sin ALLOWED_ORIGINS/APP_URL. CORS quedará cerrado para requests con Origin.');
+  }
 
   app.use(cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+      // Permite requests server-to-server/same-origin sin Origin.
+      if (!origin) return callback(null, true);
+      if (!isProduction && allowedOrigins.length === 0) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error("Origen no permitido por CORS"));
     },
     credentials: true
   }));
+
+  app.use((req: any, res: any, next: any) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=(), payment=()');
+    next();
+  });
+
+  type RateBucket = { count: number; resetAt: number };
+  const rateBuckets = new Map<string, RateBucket>();
+
+  function getRequesterKey(req: any) {
+    const authUser = req.user?.uid ? `u:${req.user.uid}` : '';
+    const ip = String(req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
+    return authUser || `ip:${ip}`;
+  }
+
+  function createRateLimiter(options: { windowMs: number; max: number; name: string }) {
+    return (req: any, res: any, next: any) => {
+      const now = Date.now();
+      const key = `${options.name}:${getRequesterKey(req)}`;
+      const bucket = rateBuckets.get(key);
+      if (!bucket || bucket.resetAt <= now) {
+        rateBuckets.set(key, { count: 1, resetAt: now + options.windowMs });
+        return next();
+      }
+      bucket.count += 1;
+      if (bucket.count > options.max) {
+        const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+        res.setHeader('Retry-After', String(retryAfter));
+        return res.status(429).json({ ok: false, error: 'Demasiadas solicitudes. Intenta nuevamente en unos minutos.', code: 'RATE_LIMITED' });
+      }
+      return next();
+    };
+  }
+
+  const generalApiRateLimit = createRateLimiter({ windowMs: 60_000, max: Number(process.env.RATE_LIMIT_API_PER_MINUTE || 240), name: 'api' });
+  const aiApiRateLimit = createRateLimiter({ windowMs: 60_000, max: Number(process.env.RATE_LIMIT_AI_PER_MINUTE || 40), name: 'ai' });
+  const publicEmailRateLimit = createRateLimiter({ windowMs: 60_000, max: Number(process.env.RATE_LIMIT_PUBLIC_EMAIL_PER_MINUTE || 20), name: 'public-email' });
+
+  function timingSafeEqualString(a: string, b: string) {
+    const aa = Buffer.from(a || '');
+    const bb = Buffer.from(b || '');
+    return aa.length === bb.length && cryptoNode.timingSafeEqual(aa, bb);
+  }
+
+  function publicActionGuard(req: any, res: any, next: any) {
+    const secret = process.env.PUBLIC_ACTION_SECRET;
+    if (!secret) return next();
+    const scope = String(req.body?.ownerId || req.body?.formId || req.body?.projectId || req.body?.agentId || req.path || 'public');
+    const expected = cryptoNode.createHmac('sha256', secret).update(scope).digest('hex');
+    const provided = String(req.headers['x-goatify-public-token'] || req.body?.publicActionToken || '');
+    if (!provided || !timingSafeEqualString(provided, expected)) {
+      return res.status(403).json({ ok: false, error: 'Acción pública no autorizada.', code: 'PUBLIC_ACTION_FORBIDDEN' });
+    }
+    return next();
+  }
+
+  const publicEmailActionMiddleware = [publicEmailRateLimit, publicActionGuard];
+
+  app.use('/api/', generalApiRateLimit);
+  app.use(['/api/gemini', '/api/ai'], aiApiRateLimit);
 
   // Body limits by endpoint. Keep global payload small for speed/cost, and allow heavy media only where needed.
   const defaultJsonLimit = process.env.API_JSON_LIMIT || "10mb";
@@ -858,7 +937,7 @@ async function startServer() {
 
   app.get("/api/version", (req: any, res: any) => {
     res.json({
-      buildId: "goatify-v16-1-final-merge-production",
+      buildId: "goatify-cloudrun-secure-v1",
       timestamp: new Date().toISOString(),
       mode: "backend-only"
     });
@@ -1107,8 +1186,20 @@ async function startServer() {
     const feature = SERVER_FEATURE_LIMIT_MAP[featureKey];
     const usageRef = firestore.collection('user_usage').doc(uid);
     const userRef = firestore.collection('users').doc(uid);
+    const requestedOperationId = String(metadata.operationId || metadata.idempotencyKey || '').trim();
+    const operationId = requestedOperationId || cryptoNode.randomUUID();
+    const operationRef = firestore.collection('users').doc(uid).collection('usage_operations').doc(operationId);
 
     await firestore.runTransaction(async (tx) => {
+      const existingOp = await tx.get(operationRef);
+      if (existingOp.exists) {
+        const opData: any = existingOp.data() || {};
+        if (opData.status === 'consumed' && opData.featureKey === featureKey) return;
+        const err: any = new Error('Operación de consumo duplicada o inválida.');
+        err.status = 409;
+        throw err;
+      }
+
       const [usageSnap, userSnap] = await Promise.all([tx.get(usageRef), tx.get(userRef)]);
       const now = new Date();
       const nowIso = now.toISOString();
@@ -1197,8 +1288,10 @@ async function startServer() {
 
       updates[`counters.${feature.usageKey}`] = admin.firestore.FieldValue.increment(safeAmount);
       tx.set(usageRef, updates, { merge: true });
-      const logRef = firestore.collection('users').doc(uid).collection('usage_logs').doc();
-      tx.set(logRef, {
+
+      const { operationId: _ignoredOperationId, idempotencyKey: _ignoredIdempotencyKey, ...cleanUsageMetadata } = metadata || {};
+      const operationPayload = {
+        status: 'consumed',
         module: metadata.module || 'backend',
         action: metadata.action || featureKey,
         featureKey,
@@ -1206,31 +1299,111 @@ async function startServer() {
         plan,
         endpoint: metadata.endpoint || req.path,
         createdAt: nowIso,
+        releasedAt: null,
+        metadata: cleanUsageMetadata
+      };
+
+      tx.set(operationRef, operationPayload);
+      tx.set(firestore.collection('users').doc(uid).collection('usage_logs').doc(), {
+        ...operationPayload,
+        operationId,
         success: true
       });
     });
+
+    return { operationId, featureKey, amount };
   }
 
-  async function releaseFeatureConsumption(req: any, featureKey: ServerFeatureKey, amount: number = 1) {
+  async function releaseFeatureConsumption(req: any, paramsOrFeatureKey: { featureKey: ServerFeatureKey; amount?: number; operationId?: string; reason?: string } | ServerFeatureKey, legacyAmount?: number) {
     const uid = req.user?.uid;
-    if (!uid) return;
+    if (!uid) return { released: false, reason: 'missing_user' };
+
+    const legacyInternalCall = typeof paramsOrFeatureKey === 'string';
+    const params: { featureKey: ServerFeatureKey; amount?: number; operationId?: string; reason?: string } = legacyInternalCall
+      ? { featureKey: paramsOrFeatureKey as ServerFeatureKey, amount: legacyAmount, operationId: undefined, reason: 'internal_rollback' }
+      : (paramsOrFeatureKey as any);
+
+    const { featureKey, operationId, reason = 'rollback' } = params;
     const feature = SERVER_FEATURE_LIMIT_MAP[featureKey];
-    const safeAmount = ['voice_live_minute', 'video_live_minute'].includes(featureKey) ? Math.max(0.1, Number(amount) || 0.1) : Math.max(1, Number(amount) || 1);
     const usageRef = firestore.collection('user_usage').doc(uid);
-    try {
+    const nowIso = new Date().toISOString();
+
+    // Mantiene compatibilidad con rollbacks internos del servidor. El endpoint público /api/usage/release NO usa este camino.
+    if (legacyInternalCall) {
+      const safeAmount = ['voice_live_minute', 'video_live_minute'].includes(featureKey) ? Math.max(0.1, Number(params.amount) || 0.1) : Math.max(1, Number(params.amount) || 1);
       await firestore.runTransaction(async (tx) => {
         const snap = await tx.get(usageRef);
         const current = Number((snap.data()?.counters || {})[feature.usageKey] || 0);
         tx.set(usageRef, {
           counters: {
             [feature.usageKey]: Math.max(0, current - safeAmount),
-            last_activity: new Date().toISOString()
+            last_activity: nowIso
           }
         }, { merge: true });
+        tx.set(firestore.collection('users').doc(uid).collection('usage_logs').doc(), {
+          module: 'backend',
+          action: 'release_feature_internal',
+          featureKey,
+          amount: safeAmount,
+          endpoint: req.path,
+          createdAt: nowIso,
+          success: true,
+          releaseReason: reason
+        });
       });
-    } catch (e) {
-      console.warn('[CREDIT RELEASE] No se pudo revertir consumo:', e);
+      return { released: true, legacy: true };
     }
+
+    if (!operationId) {
+      const err: any = new Error('Rollback rechazado: falta operationId. Usa /api/usage/recalculate para ajustar contadores por borrado real de recursos.');
+      err.status = 400;
+      throw err;
+    }
+
+    const operationRef = firestore.collection('users').doc(uid).collection('usage_operations').doc(operationId);
+
+    await firestore.runTransaction(async (tx) => {
+      const [usageSnap, opSnap] = await Promise.all([tx.get(usageRef), tx.get(operationRef)]);
+      if (!opSnap.exists) {
+        const err: any = new Error('Operación de consumo no encontrada.');
+        err.status = 404;
+        throw err;
+      }
+      const opData: any = opSnap.data() || {};
+      if (opData.status === 'released') return;
+      if (opData.featureKey !== featureKey) {
+        const err: any = new Error('La operación no pertenece a este feature.');
+        err.status = 400;
+        throw err;
+      }
+      const safeAmount = Number(opData.amount || params.amount || 0);
+      if (!(safeAmount > 0)) {
+        const err: any = new Error('La operación no tiene un monto válido para liberar.');
+        err.status = 400;
+        throw err;
+      }
+      const current = Number((usageSnap.data()?.counters || {})[feature.usageKey] || 0);
+      tx.set(usageRef, {
+        counters: {
+          [feature.usageKey]: Math.max(0, current - safeAmount),
+          last_activity: nowIso
+        }
+      }, { merge: true });
+      tx.set(operationRef, { status: 'released', releasedAt: nowIso, releaseReason: reason }, { merge: true });
+      tx.set(firestore.collection('users').doc(uid).collection('usage_logs').doc(), {
+        operationId,
+        module: 'backend',
+        action: 'release_feature',
+        featureKey,
+        amount: safeAmount,
+        endpoint: req.path,
+        createdAt: nowIso,
+        success: true,
+        releaseReason: reason
+      });
+    });
+
+    return { released: true, operationId };
   }
 
   function sendLimitError(res: any, e: any) {
@@ -1238,10 +1411,6 @@ async function startServer() {
     return res.status(status).json({ ok: false, error: e?.message || 'Límite del plan alcanzado.', code: 'PLAN_LIMIT_REACHED' });
   }
 
-
-  // --- USAGE API (SERVER-AUTHORIZED NON-AI COUNTERS) ---
-  // V11: métricas de producto como social_post/presentation/web_programmer se consumen desde Cloud Run,
-  // no desde escrituras directas del cliente, para evitar doble conteo o manipulación fácil.
   const PUBLIC_CONSUMABLE_FEATURES: ServerFeatureKey[] = Object.keys(SERVER_FEATURE_LIMIT_MAP) as ServerFeatureKey[];
 
   app.post('/api/usage/consume', requireFirebaseUser, async (req: any, res: any) => {
@@ -1252,24 +1421,26 @@ async function startServer() {
     const baseAmount = ['voice_live_minute', 'video_live_minute'].includes(featureKey) ? Math.max(0.1, Number(amount) || 0.1) : Math.max(1, Number(amount) || 1);
     const safeAmount = Math.min(baseAmount, featureKey === 'storage' ? 2 * 1024 * 1024 * 1024 : 500);
     try {
-      await consumeFeatureOrReject(req, featureKey, safeAmount, { module: 'client_usage', action: 'consume_feature', ...metadata });
-      return res.json({ ok: true, featureKey, amount: safeAmount });
+      const usageOperation = await consumeFeatureOrReject(req, featureKey, safeAmount, { module: 'client_usage', action: 'consume_feature', ...metadata });
+      return res.json({ ok: true, featureKey, amount: safeAmount, operationId: usageOperation.operationId });
     } catch (e: any) {
       return sendLimitError(res, e);
     }
   });
 
   app.post('/api/usage/release', requireFirebaseUser, async (req: any, res: any) => {
-    const { featureKey, amount = 1 } = req.body || {};
+    const { featureKey, amount = 1, operationId } = req.body || {};
     if (!PUBLIC_CONSUMABLE_FEATURES.includes(featureKey)) {
       return res.status(400).json({ ok: false, error: 'Feature no permitida para rollback directo.' });
     }
-    const baseAmount = ['voice_live_minute', 'video_live_minute'].includes(featureKey) ? Math.max(0.1, Number(amount) || 0.1) : Math.max(1, Number(amount) || 1);
-    const safeAmount = Math.min(baseAmount, featureKey === 'storage' ? 2 * 1024 * 1024 * 1024 : 500);
-    await releaseFeatureConsumption(req, featureKey, safeAmount);
-    return res.json({ ok: true });
+    try {
+      const releaseOperation = await releaseFeatureConsumption(req, { featureKey, amount, operationId, reason: 'client_rollback' });
+      return res.json({ ok: true, ...releaseOperation });
+    } catch (e: any) {
+      const status = Number(e?.status || 400);
+      return res.status(status).json({ ok: false, error: e?.message || 'No se pudo liberar la operación.', code: 'RELEASE_REJECTED' });
+    }
   });
-
 
   async function recalculateUsageForUid(uid: string) {
     const nowIso = new Date().toISOString();
@@ -1422,15 +1593,15 @@ async function startServer() {
     const ownerSnap = await firestore.collection('users').doc(ownerId).get();
     const fakeReq = { ...req, user: { uid: ownerId, email: ownerSnap.data()?.email || '' }, path: req.path };
     try {
-      await consumeFeatureOrReject(fakeReq, featureKey, Math.max(1, Number(amount) || 1), { module: 'public_agent', agentId, visitorUid: req.user.uid, ...metadata });
-      return res.json({ ok: true });
+      const usageOperation = await consumeFeatureOrReject(fakeReq, featureKey, Math.max(1, Number(amount) || 1), { module: 'public_agent', agentId, visitorUid: req.user.uid, ...metadata });
+      return res.json({ ok: true, operationId: usageOperation.operationId });
     } catch (e: any) {
       return sendLimitError(res, e);
     }
   });
 
   app.post('/api/usage/release-agent-owner', requireFirebaseUser, async (req: any, res: any) => {
-    const { ownerId, agentId, featureKey, amount = 1 } = req.body || {};
+    const { ownerId, agentId, featureKey, amount = 1, operationId } = req.body || {};
     if (!ownerId || !agentId || !OWNER_AGENT_FEATURES.includes(featureKey)) {
       return res.status(400).json({ ok: false, error: 'Solicitud de rollback de agente inválida.' });
     }
@@ -1439,8 +1610,13 @@ async function startServer() {
       return res.status(403).json({ ok: false, error: 'Agente no autorizado para este owner.' });
     }
     const fakeReq = { ...req, user: { uid: ownerId }, path: req.path };
-    await releaseFeatureConsumption(fakeReq, featureKey, Math.max(1, Number(amount) || 1));
-    return res.json({ ok: true });
+    try {
+      const releaseOperation = await releaseFeatureConsumption(fakeReq, { featureKey, amount, operationId, reason: 'agent_rollback' });
+      return res.json({ ok: true, ...releaseOperation });
+    } catch (e: any) {
+      const status = Number(e?.status || 400);
+      return res.status(status).json({ ok: false, error: e?.message || 'No se pudo liberar la operación del agente.', code: 'RELEASE_REJECTED' });
+    }
   });
 
   app.get("/api/debug/gemini-key", (req: any, res: any) => {
@@ -1728,7 +1904,7 @@ async function startServer() {
   });
 
   // 1.2 Endpoint público para confirmación de Scheduler
-  app.post("/api/scheduler/confirm", async (req, res) => {
+  app.post("/api/scheduler/confirm", ...publicEmailActionMiddleware, async (req, res) => {
     const { ownerId, ownerEmail, guestEmail, guestName, date, time, meetingLink, notes } = req.body;
     
     // Buscar una sesión activa para este ownerId
@@ -1853,7 +2029,7 @@ async function startServer() {
   });
 
   // 1.3 Endpoint para invitaciones a proyectos
-  app.post("/api/project/invite", async (req, res) => {
+  app.post("/api/project/invite", ...publicEmailActionMiddleware, async (req, res) => {
     const { ownerId, ownerName, projectName, guestEmail, targetUrl } = req.body;
     
     let ownerSession = null;
@@ -1956,7 +2132,7 @@ async function startServer() {
   });
 
   // Endpoint para asignación de tareas
-  app.post("/api/task/assign", async (req, res) => {
+  app.post("/api/task/assign", ...publicEmailActionMiddleware, async (req, res) => {
     const { ownerId, ownerName, projectName, taskName, guestEmail, targetUrl } = req.body;
     
     let ownerSession = null;
@@ -2058,7 +2234,7 @@ async function startServer() {
   });
 
   // 1.35 Endpoint para recibos Intis
-  app.post("/api/wallet/receipt", async (req, res) => {
+  app.post("/api/wallet/receipt", ...publicEmailActionMiddleware, async (req, res) => {
     const { ownerId, ownerName, recipientEmail, amount, note, txId } = req.body;
     
     let ownerSession = null;
@@ -2154,7 +2330,7 @@ async function startServer() {
   });
 
   // 1.36 Endpoint para confirmación de registro de fidelización
-  app.post("/api/loyalty/registration", async (req, res) => {
+  app.post("/api/loyalty/registration", ...publicEmailActionMiddleware, async (req, res) => {
     const { ownerId, projectName, userEmail, rewardName, targetVisits } = req.body;
     
     // Buscar sesión del dueño para enviar desde su correo si es posible
@@ -2252,7 +2428,7 @@ async function startServer() {
   });
 
   // 1.37 Endpoint para procesamiento de reclamo (Aprobado/Rechazado)
-  app.post("/api/loyalty/processed", async (req, res) => {
+  app.post("/api/loyalty/processed", ...publicEmailActionMiddleware, async (req, res) => {
     const { to, status, projectName, rewardName, currentVisits } = req.body;
     
     // Usar sesión admin como fallback para estas notificaciones de sistema
@@ -2355,7 +2531,7 @@ async function startServer() {
   });
 
   // 1.36 Endpoint para recibos POS
-  app.post("/api/pos/email-receipt", async (req, res) => {
+  app.post("/api/pos/email-receipt", ...publicEmailActionMiddleware, async (req, res) => {
     const { ownerId, ownerName, customerEmail, subject, htmlBody } = req.body;
     
     let ownerSession = null;
@@ -2402,7 +2578,7 @@ async function startServer() {
   });
 
   // 1.4 Endpoint para notificaciones de formularios
-  app.post("/api/forms/notify", async (req, res) => {
+  app.post("/api/forms/notify", ...publicEmailActionMiddleware, async (req, res) => {
     const { ownerId, ownerEmail, formName, guestEmail, guestData } = req.body;
     
     let ownerSession = null;

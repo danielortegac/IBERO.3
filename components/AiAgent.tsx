@@ -401,10 +401,12 @@ const FlowStepEditor: React.FC<{
         if (file) {
             setIsUploading(true);
             try {
+                const uid = auth.currentUser?.uid;
+                if (!uid) throw new Error('Debes iniciar sesión para subir archivos del agente.');
                 const { url } = await uploadWithQuotaCheck({
-                    userId: auth.currentUser?.uid || 'anonymous',
+                    userId: uid,
                     data: file,
-                    path: safeStoragePath('agents', 'flows', `${Date.now()}_${file.name}`),
+                    path: safeStoragePath('agents', uid, 'flows', `${Date.now()}_${file.name}`),
                     sizeBytes: file.size,
                     metadata: { contentType: file.type || 'application/octet-stream' }
                 });
@@ -1016,10 +1018,12 @@ const AiAgent: React.FC = () => {
                                 if (file) {
                                     setToastNotification({ title: 'Subiendo...', message: 'Subiendo foto del agente.', icon: 'sync' });
                                     try {
+                                        const uid = currentUser?.uid;
+                                        if (!uid) throw new Error('Debes iniciar sesión para subir la foto del agente.');
                                         const { url } = await uploadWithQuotaCheck({
-                                            userId: currentUser?.uid || 'anonymous',
+                                            userId: uid,
                                             data: file,
-                                            path: safeStoragePath('agents', 'avatars', `${Date.now()}_${file.name}`),
+                                            path: safeStoragePath('agents', uid, 'avatars', `${Date.now()}_${file.name}`),
                                             sizeBytes: file.size,
                                             metadata: { contentType: file.type || 'image/*' }
                                         });

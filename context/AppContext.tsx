@@ -1802,7 +1802,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const blob = new Blob([activeFile.code], { type: 'text/html' });
             fileSize = blob.size;
             
-            const uploaded = await uploadWithQuotaCheck({ userId: currentUser.uid, data: blob, sizeBytes: fileSize, path: safeStoragePath('projects', projectId, 'web', `${Date.now()}_${fileName}`), metadata: { contentType: fileType }, plan: userProfile.plan });
+            const uploaded = await uploadWithQuotaCheck({ userId: currentUser.uid, data: blob, sizeBytes: fileSize, path: safeStoragePath('projects', currentUser.uid, projectId, 'web', `${Date.now()}_${fileName}`), metadata: { contentType: fileType }, plan: userProfile.plan });
             downloadUrl = uploaded.url;
         } else {
             const zip = new JSZip();
@@ -1814,7 +1814,7 @@ export const AppContextProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             fileType = 'application/zip';
             fileSize = blob.size;
 
-            const uploaded = await uploadWithQuotaCheck({ userId: currentUser.uid, data: blob, sizeBytes: fileSize, path: safeStoragePath('projects', projectId, 'web', `${Date.now()}_${fileName}`), metadata: { contentType: fileType }, plan: userProfile.plan });
+            const uploaded = await uploadWithQuotaCheck({ userId: currentUser.uid, data: blob, sizeBytes: fileSize, path: safeStoragePath('projects', currentUser.uid, projectId, 'web', `${Date.now()}_${fileName}`), metadata: { contentType: fileType }, plan: userProfile.plan });
             downloadUrl = uploaded.url;
         }
 

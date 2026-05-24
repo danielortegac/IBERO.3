@@ -1,7 +1,15 @@
 import { auth } from '../firebaseConfig';
 import type { FeatureKey } from '../types';
 
-export async function consumeServerFeature(featureKey: FeatureKey, amount: number = 1, metadata: Record<string, any> = {}) {
+export type UsageOperationResult = {
+  ok?: boolean;
+  featureKey?: FeatureKey;
+  amount?: number;
+  operationId?: string;
+  [key: string]: any;
+};
+
+export async function consumeServerFeature(featureKey: FeatureKey, amount: number = 1, metadata: Record<string, any> = {}): Promise<UsageOperationResult> {
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error('Usuario no autenticado.');
   const res = await fetch('/api/usage/consume', {
@@ -22,21 +30,33 @@ export async function consumeServerFeature(featureKey: FeatureKey, amount: numbe
   return data;
 }
 
-export async function releaseServerFeature(featureKey: FeatureKey, amount: number = 1) {
+export async function releaseServerFeature(featureKey: FeatureKey, amount: number = 1, operationId?: string) {
   const token = await auth.currentUser?.getIdToken();
   if (!token) return;
+  if (!operationId) {
+    // Seguridad V17: los rollbacks públicos necesitan operationId. Para borrados reales, recalculamos.
+    await fetch('/api/usage/recalculate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ reason: 'release_without_operation_id', featureKey, amount })
+    }).catch(() => undefined);
+    return;
+  }
   await fetch('/api/usage/release', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ featureKey, amount })
+    body: JSON.stringify({ featureKey, amount, operationId })
   }).catch(() => undefined);
 }
 
 
-export async function consumeAgentOwnerFeature(ownerId: string, agentId: string, featureKey: string, amount: number = 1, metadata: Record<string, any> = {}) {
+export async function consumeAgentOwnerFeature(ownerId: string, agentId: string, featureKey: string, amount: number = 1, metadata: Record<string, any> = {}): Promise<UsageOperationResult> {
   const token = await auth.currentUser?.getIdToken();
   if (!token) throw new Error('Usuario no autenticado.');
   const res = await fetch('/api/usage/consume-agent-owner', {
@@ -57,16 +77,16 @@ export async function consumeAgentOwnerFeature(ownerId: string, agentId: string,
   return data;
 }
 
-export async function releaseAgentOwnerFeature(ownerId: string, agentId: string, featureKey: string, amount: number = 1) {
+export async function releaseAgentOwnerFeature(ownerId: string, agentId: string, featureKey: string, amount: number = 1, operationId?: string) {
   const token = await auth.currentUser?.getIdToken();
-  if (!token) return;
+  if (!token || !operationId) return;
   await fetch('/api/usage/release-agent-owner', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ ownerId, agentId, featureKey, amount })
+    body: JSON.stringify({ ownerId, agentId, featureKey, amount, operationId })
   }).catch(() => undefined);
 }
 

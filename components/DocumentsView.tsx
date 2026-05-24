@@ -99,7 +99,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({ project }) => {
                     const uploaded = await uploadWithQuotaCheck({
                         userId: userProfile.uid,
                         data: file,
-                        path: safeStoragePath('projects', project.id, 'documents', `${Date.now()}_${file.name}`),
+                        path: safeStoragePath('projects', userProfile.uid, project.id, 'documents', `${Date.now()}_${file.name}`),
                         sizeBytes: file.size,
                         metadata: { contentType: file.type || 'application/octet-stream' },
                         plan: userProfile.plan
