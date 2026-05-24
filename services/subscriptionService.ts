@@ -233,11 +233,9 @@ export const syncUserUsage = async (userId: string, plan: string) => {
 
 export const releaseLimit = async (userId: string, featureKey: FeatureKey, amount: number = 1) => {
     try {
-        // V17: los rollbacks directos necesitan operationId.
-        // Para borrados reales de proyectos/tareas/formularios/storage, recalculamos contadores desde Firestore.
-        await callUsageApi('/api/usage/recalculate', { reason: 'resource_deleted', featureKey, amount });
+        await callUsageApi('/api/usage/release', { featureKey, amount });
     } catch (e) {
-        console.error('Failed to recalculate usage after releaseLimit:', e);
+        console.error('Failed to release limit:', e);
     }
 };
 

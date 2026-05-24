@@ -9,17 +9,6 @@ const sanitizePathPart = (value: string) => String(value || 'file').replace(/[^a
 
 export const safeStoragePath = (...parts: string[]) => parts.map(sanitizePathPart).join('/').replace(/\/+/g, '/');
 
-const assertOwnerPath = (userId: string, path: string) => {
-  const cleanUserId = String(userId || '').trim();
-  if (!cleanUserId || cleanUserId === 'anonymous') {
-    throw new Error('Storage upload blocked: missing authenticated ownerId/userId.');
-  }
-  const parts = path.split('/').filter(Boolean);
-  if (!parts.includes(cleanUserId)) {
-    throw new Error(`Storage upload blocked: path must include ownerId/userId (${cleanUserId}).`);
-  }
-};
-
 export async function uploadWithQuotaCheck(params: {
   userId: string;
   data: UploadBinary;
@@ -31,16 +20,15 @@ export async function uploadWithQuotaCheck(params: {
 }) {
   const { userId, data, path, metadata, plan, featureKey = 'storage' } = params;
   const sizeBytes = Math.max(0, Number(params.sizeBytes ?? ((data as Blob).size ?? 0)));
-  assertOwnerPath(userId, path);
-  const usageOperation = await consumeServerFeature(featureKey, sizeBytes, { module: 'storage', action: 'upload_file', path });
+  await consumeServerFeature(featureKey, sizeBytes, { module: 'storage', action: 'upload_file', path });
 
   const storageRef = ref(storage, path);
   try {
     const snapshot = await uploadBytes(storageRef, data as any, metadata);
     const url = await getDownloadURL(snapshot.ref);
-    return { url, ref: snapshot.ref, path, sizeBytes, operationId: usageOperation.operationId };
+    return { url, ref: snapshot.ref, path, sizeBytes };
   } catch (error) {
-    await releaseServerFeature(featureKey, sizeBytes, usageOperation.operationId).catch(() => undefined);
+    await releaseServerFeature(featureKey, sizeBytes).catch(() => undefined);
     throw error;
   }
 }
@@ -57,22 +45,21 @@ export async function uploadStringWithQuotaCheck(params: {
 }) {
   const { userId, data, path, metadata, plan, featureKey = 'storage' } = params;
   const format = params.format || 'raw';
-  assertOwnerPath(userId, path);
   const estimatedSize = params.sizeBytes ?? (format === 'base64' || format === 'base64url'
     ? Math.floor((data.length * 3) / 4)
     : format === 'data_url'
       ? Math.floor((data.length * 3) / 4)
       : new Blob([data]).size);
 
-  const usageOperation = await consumeServerFeature(featureKey, Math.max(0, estimatedSize), { module: 'storage', action: 'upload_string', path });
+  await consumeServerFeature(featureKey, Math.max(0, estimatedSize), { module: 'storage', action: 'upload_string', path });
 
   const storageRef = ref(storage, path);
   try {
     await uploadString(storageRef, data, format as any, metadata);
     const url = await getDownloadURL(storageRef);
-    return { url, ref: storageRef, path, sizeBytes: Math.max(0, estimatedSize), operationId: usageOperation.operationId };
+    return { url, ref: storageRef, path, sizeBytes: Math.max(0, estimatedSize) };
   } catch (error) {
-    await releaseServerFeature(featureKey, Math.max(0, estimatedSize), usageOperation.operationId).catch(() => undefined);
+    await releaseServerFeature(featureKey, Math.max(0, estimatedSize)).catch(() => undefined);
     throw error;
   }
 }

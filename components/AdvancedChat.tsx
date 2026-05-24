@@ -35,35 +35,9 @@ const MessageList = React.memo(({ history, isLoading, onStartEdit, editingMessag
 }) => {
     return (
         <>
-            {history.length === 0 && (
-                <div className="min-h-[420px] flex items-center justify-center px-4">
-                    <div className="max-w-3xl w-full rounded-[2.5rem] border border-white/70 dark:border-white/10 bg-white/75 dark:bg-neutral-950/70 backdrop-blur-2xl shadow-2xl p-8 sm:p-10 text-center relative overflow-hidden">
-                        <div className="absolute inset-x-10 -top-24 h-44 bg-brand-primary/20 blur-[70px] rounded-full pointer-events-none"></div>
-                        <div className="relative mx-auto w-16 h-16 rounded-3xl bg-gradient-to-br from-brand-primary via-purple-600 to-fuchsia-500 text-white flex items-center justify-center shadow-2xl mb-5">
-                            <Icon name="ai" className="w-8 h-8" />
-                        </div>
-                        <p className="relative text-[10px] font-black uppercase tracking-[0.32em] text-brand-primary mb-2">Shivo Command Center</p>
-                        <h3 className="relative text-2xl sm:text-4xl font-black tracking-[-0.06em] text-neutral-950 dark:text-white mb-3">Chat avanzado, más ejecutivo y más vivo.</h3>
-                        <p className="relative text-sm sm:text-base text-neutral-500 dark:text-neutral-400 max-w-2xl mx-auto leading-relaxed">Puedes pedirle estrategia, tareas, agenda, correos, documentos, análisis de archivos, ideas de negocio o ejecución dentro de Goatify. Todo queda con contexto y memoria de trabajo.</p>
-                        <div className="relative grid grid-cols-1 sm:grid-cols-3 gap-3 mt-7 text-left">
-                            {[
-                                { icon: 'projects', title: 'Opera proyectos', text: 'Crea tareas, documentos y estructura.' },
-                                { icon: 'calendar', title: 'Agenda inteligente', text: 'Prioriza reuniones y pendientes.' },
-                                { icon: 'folder', title: 'Drive + archivos', text: 'Analiza recursos y los guarda.' }
-                            ].map((item, idx) => (
-                                <div key={idx} className="rounded-2xl bg-neutral-50/90 dark:bg-white/5 border border-neutral-100 dark:border-white/10 p-4">
-                                    <Icon name={item.icon as any} className="w-5 h-5 text-brand-primary mb-3" />
-                                    <p className="text-xs font-black uppercase tracking-widest text-neutral-800 dark:text-white">{item.title}</p>
-                                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">{item.text}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
             {history.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-subtle-slide-in-up px-1`}>
-                    <div className={`relative group max-w-[min(92%,820px)] rounded-[1.6rem] px-4 sm:px-5 py-3 sm:py-4 shadow-xl text-sm leading-relaxed ring-1 transition-all ${msg.role === 'user' ? 'bg-gradient-to-br from-brand-primary via-purple-700 to-fuchsia-700 text-white rounded-br-md ring-white/20 shadow-brand-primary/20' : 'bg-white/90 dark:bg-neutral-950/90 text-gray-800 dark:text-gray-100 rounded-bl-md border border-white/70 dark:border-white/10 ring-neutral-200/70 dark:ring-white/10 backdrop-blur-2xl shadow-black/5 dark:shadow-black/40'}`}> 
+                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-subtle-slide-in-up`}>
+                    <div className={`relative group max-w-[90%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${msg.role === 'user' ? 'bg-brand-primary text-white rounded-br-none' : 'bg-white dark:bg-neutral-800 text-gray-800 dark:text-gray-200 rounded-bl-none border border-gray-100 dark:border-gray-700'}`}>
                         {msg.files && msg.files.length > 0 && (
                             <div className="flex flex-wrap gap-2 mb-2">
                                 {msg.files.map((f, i) => (
@@ -168,7 +142,7 @@ const MessageList = React.memo(({ history, isLoading, onStartEdit, editingMessag
 const MemoizedInputArea = React.memo(({ onSend, onFileChange, onPaste, isScreenSharing, isLoading, handleStartLiveAudio, handleStartLiveVideo, onShortcutAction, onOpenDrive }: any) => {
     const [localInput, setLocalInput] = useState('');
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const fileInputRef = useRef<HTMLTextAreaElement>(null);
 
     const handleSendLocal = (prompt?: string) => {
         const text = prompt || localInput;
@@ -195,14 +169,14 @@ const MemoizedInputArea = React.memo(({ onSend, onFileChange, onPaste, isScreenS
                     <button 
                         key={i} 
                         onClick={() => btn.type === 'chat' ? handleSendLocal(btn.prompt) : onShortcutAction(btn.action)}
-                        className="flex-shrink-0 px-3.5 py-2 bg-white/80 dark:bg-white/5 border border-neutral-200/80 dark:border-white/10 rounded-full text-[8px] font-black text-neutral-500 dark:text-neutral-300 hover:text-white hover:bg-brand-primary hover:border-brand-primary transition-all uppercase tracking-[0.12em] whitespace-nowrap shadow-sm"
+                        className="flex-shrink-0 px-3 py-1.5 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg text-[8px] font-black text-neutral-500 hover:text-brand-primary hover:border-brand-primary transition-all uppercase tracking-tighter whitespace-nowrap"
                     >
                         {btn.label}
                     </button>
                 ))}
             </div>
 
-            <div className="relative flex items-end gap-1 bg-white/90 dark:bg-neutral-950/90 rounded-[2rem] p-2 shadow-2xl border border-neutral-200/80 dark:border-white/10 focus-within:border-brand-primary/50 focus-within:ring-4 focus-within:ring-brand-primary/10 transition-all backdrop-blur-2xl">
+            <div className="relative flex items-end gap-1 bg-gray-100 dark:bg-neutral-800 rounded-[2rem] p-1.5 shadow-inner border border-transparent focus-within:border-brand-primary/40 transition-all">
                 <input type="file" multiple ref={fileInputRef} className="hidden" onChange={onFileChange} accept="*" />
                 <div className="flex flex-row items-center gap-1 flex-none pb-1">
                     <button onClick={() => (fileInputRef.current as any)?.click()} className="p-2 text-neutral-400 hover:text-brand-primary rounded-full" title="Adjuntar desde PC"><Icon name="plus" className="w-5 h-5" /></button>
@@ -220,8 +194,8 @@ const MemoizedInputArea = React.memo(({ onSend, onFileChange, onPaste, isScreenS
                         } 
                     }} 
                     onPaste={onPaste}
-                    placeholder={isScreenSharing ? "Shivo ve tu pantalla... Pregúntale." : "Escribe con contexto, archivos o una orden directa..."} 
-                    className="!mt-0 bg-transparent border-none focus:ring-0 w-full text-sm py-3 min-h-[48px] text-neutral-900 dark:text-white placeholder:text-neutral-400" 
+                    placeholder={isScreenSharing ? "Shivo ve tu pantalla... Pregúntale." : "Escribe un mensaje fluido..."} 
+                    className="!mt-0 bg-transparent border-none focus:ring-0 w-full text-sm py-2" 
                 />
                 <div className="flex items-center gap-1">
                     <button onClick={() => handleSendLocal()} disabled={isLoading} className="p-3 rounded-2xl bg-brand-primary text-white shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center disabled:opacity-50">
@@ -954,7 +928,7 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
     };
 
     const renderChatContent = () => (
-        <div className={`flex flex-col h-full bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.12),transparent_34%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] dark:bg-[radial-gradient(circle_at_top_left,rgba(124,58,237,0.18),transparent_34%),linear-gradient(135deg,#050505,#0b0b12_50%,#030303)] border border-white/70 dark:border-white/10 overflow-hidden ${pipWindow ? 'w-full rounded-none' : 'rounded-[2rem] shadow-2xl shadow-black/10'} ${isInternalFullScreen ? 'fixed inset-0 z-[160000] !rounded-none border-none' : ''}`}>
+        <div className={`flex flex-col h-full bg-gradient-to-br from-white via-neutral-50 to-brand-primary/5 dark:from-[#070707] dark:via-[#0b0b0b] dark:to-brand-primary/10 border border-neutral-200/70 dark:border-neutral-800 ${pipWindow ? 'w-full rounded-none' : 'rounded-[2rem] shadow-2xl'} ${isInternalFullScreen ? 'fixed inset-0 z-[160000] !rounded-none border-none' : ''}`}>
              
             {/* Modal para asignar a proyecto */}
             <Modal isOpen={isAssignModalOpen} onClose={() => { setAssignModalOpen(false); setAssigningArtifact(null); }} title="Enviar a Proyecto">
@@ -982,9 +956,9 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
                 </div>
             </Modal>
 
-             <div className="p-3 sm:p-4 border-b border-white/60 dark:border-white/10 flex items-center justify-between gap-2 bg-white/75 dark:bg-black/35 backdrop-blur-2xl z-50 shadow-sm">
+             <div className="p-3 sm:p-4 border-b border-light-border/70 dark:border-dark-border/70 flex items-center justify-between gap-2 bg-white/80 dark:bg-neutral-950/80 backdrop-blur-2xl z-50 shadow-sm">
                     <div className="flex items-center gap-3 flex-shrink min-w-0">
-                         <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-primary via-purple-600 to-fuchsia-600 flex items-center justify-center text-white shadow-2xl shadow-brand-primary/25 flex-shrink-0 ring-1 ring-white/30">
+                         <div className="w-10 h-10 rounded-2xl bg-brand-primary flex items-center justify-center text-white shadow-lg flex-shrink-0">
                              <Icon name="ai" className="w-6 h-6" />
                          </div>
                          <div className="min-w-0 flex flex-col">
@@ -1043,7 +1017,7 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
                     ))}
                 </div>
 
-                <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 custom-scrollbar bg-transparent pb-36 lg:pb-6 relative">
+                <div ref={messagesContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-gradient-to-b from-neutral-50 via-white to-neutral-100 dark:from-[#0d0d0d] dark:via-[#090909] dark:to-black pb-32 lg:pb-4 relative">
                     <aside className="hidden xl:block sticky top-0 float-right w-72 ml-4 mb-4 z-10">
                         <div className="rounded-[1.75rem] border border-neutral-200/80 dark:border-neutral-800 bg-white/85 dark:bg-neutral-950/85 backdrop-blur-2xl p-4 shadow-xl space-y-3">
                             <div>
@@ -1087,7 +1061,7 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
                 </div>
 
                 {/* BOTÓN DE MENÚ DE TEXTO BAJADO HASTA EL FINAL v12.5 - NO EXTRA PADDING */}
-                <div className="flex-none p-2 bg-white/75 dark:bg-black/55 backdrop-blur-2xl border-t border-white/60 dark:border-white/10 z-[150] fixed bottom-0 left-0 right-0 lg:relative lg:bottom-0 shadow-[0_-24px_80px_rgba(0,0,0,0.12)]">
+                <div className="flex-none p-2 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-2xl border-t border-light-border/70 dark:border-dark-border/70 z-[150] fixed bottom-0 left-0 right-0 lg:relative lg:bottom-0 shadow-[0_-20px_60px_rgba(0,0,0,0.08)]">
                     <div className="p-2 sm:p-4">
                         {attachedFiles.length > 0 && (
                             <div className="flex flex-wrap gap-3 mb-3 p-2.5 bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl animate-subtle-slide-in-up shadow-sm">

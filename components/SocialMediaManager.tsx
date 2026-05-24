@@ -8,7 +8,6 @@ import Textarea from './ui/Textarea';
 import Input from './ui/Input';
 import Spinner from './ui/Spinner';
 import { generateSocialContent, generateImage } from '../services/geminiService';
-import { uploadWithQuotaCheck, safeStoragePath } from '../services/storageQuotaService';
 import { SocialPost, Note, SocialCampaign } from '../types';
 import Card from './ui/Card';
 import Modal from './ui/Modal';
@@ -43,20 +42,6 @@ type BrandProfile = {
     wordsYes: string;
     wordsNo: string;
     visualStyle: string;
-    logoUrl?: string;
-    coverUrl?: string;
-    moodboardUrl?: string;
-    colorPrimary?: string;
-    colorSecondary?: string;
-    colorAccent?: string;
-    typography?: string;
-    layoutRules?: string;
-    imageryStyle?: string;
-    templateStyle?: string;
-    assetNotes?: string;
-    referenceLinks?: string;
-    competitorNotes?: string;
-    brandPromise?: string;
     ctas: string;
     objections: string;
     contentMemory: string;
@@ -126,20 +111,6 @@ const emptyBrand = (ownerId: string, name = 'Mi marca'): BrandProfile => {
         wordsYes: '',
         wordsNo: '',
         visualStyle: 'Limpio, premium, moderno, con luz cuidada y composición comercial.',
-        logoUrl: '',
-        coverUrl: '',
-        moodboardUrl: '',
-        colorPrimary: '#4c1d95',
-        colorSecondary: '#6d28d9',
-        colorAccent: '#8b5cf6',
-        typography: 'Inter / Plus Jakarta Sans, moderna, clara y legible.',
-        layoutRules: 'Mucho aire visual, jerarquía clara, títulos fuertes, CTA visible y composición limpia.',
-        imageryStyle: 'Imágenes reales o renders premium, luz cuidada, personas naturales, tecnología útil, nada genérico.',
-        templateStyle: 'Carruseles educativos, reels con gancho, posts de autoridad, prueba social y ofertas con CTA.',
-        assetNotes: '',
-        referenceLinks: '',
-        competitorNotes: '',
-        brandPromise: '',
         ctas: '',
         objections: '',
         contentMemory: defaultContentMemory,
@@ -162,18 +133,6 @@ const buildBrandContext = (brand?: BrandProfile | null) => {
         `Palabras que sí usa: ${brand.wordsYes}`,
         `Palabras prohibidas: ${brand.wordsNo}`,
         `Estilo visual: ${brand.visualStyle}`,
-        `Logo principal: ${brand.logoUrl || 'No cargado'}`,
-        `Imagen cover / hero: ${brand.coverUrl || 'No cargada'}`,
-        `Moodboard / referencia visual: ${brand.moodboardUrl || 'No cargado'}`,
-        `Paleta: primario ${brand.colorPrimary || ''}, secundario ${brand.colorSecondary || ''}, acento ${brand.colorAccent || ''}`,
-        `Tipografía: ${brand.typography || ''}`,
-        `Reglas de layout: ${brand.layoutRules || ''}`,
-        `Estilo de imágenes: ${brand.imageryStyle || ''}`,
-        `Plantillas/formatos preferidos: ${brand.templateStyle || ''}`,
-        `Notas de assets: ${brand.assetNotes || ''}`,
-        `Referencias visuales: ${brand.referenceLinks || ''}`,
-        `Competidores/referentes: ${brand.competitorNotes || ''}`,
-        `Promesa de marca: ${brand.brandPromise || ''}`,
         `CTAs favoritos: ${brand.ctas}`,
         `Objeciones frecuentes: ${brand.objections}`,
         `Memoria libre: ${brand.contentMemory}`
@@ -199,8 +158,7 @@ const SocialMediaManager: React.FC = () => {
         updateProject,
         userProfile,
         userUsage,
-        createNotification,
-        currentUser
+        createNotification
     } = useContext(AppContext);
 
     const uid = userProfile?.uid || 'local-user';
@@ -367,28 +325,6 @@ const SocialMediaManager: React.FC = () => {
         setBrandDraft(fresh);
         setSelectedBrandId('');
         setContentMemory(fresh.contentMemory);
-    };
-
-    const uploadBrandAsset = async (file: File | undefined, field: 'logoUrl' | 'coverUrl' | 'moodboardUrl') => {
-        if (!file || !currentUser) {
-            setToastNotification({ title: 'Falta sesión', message: 'Inicia sesión para subir assets de marca.', icon: 'lock' });
-            return;
-        }
-        try {
-            const uploaded = await uploadWithQuotaCheck({
-                userId: currentUser.uid,
-                data: file,
-                sizeBytes: file.size,
-                path: safeStoragePath('social-brands', currentUser.uid, brandDraft.id || `brand-${Date.now()}`, field, `${Date.now()}_${file.name}`),
-                metadata: { contentType: file.type || 'application/octet-stream' },
-                plan: userProfile.plan
-            });
-            setBrandDraft(prev => ({ ...prev, [field]: uploaded.url, updatedAt: new Date().toISOString() }));
-            setToastNotification({ title: 'Asset cargado', message: 'El Brand Kit visual fue actualizado.', icon: 'check' });
-        } catch (error) {
-            console.error(error);
-            setToastNotification({ title: 'Error', message: 'No se pudo subir el asset de marca.', icon: 'close' });
-        }
     };
 
     const saveCampaign = async (campaign: SocialCampaign) => {
@@ -965,140 +901,9 @@ const SocialMediaManager: React.FC = () => {
                 )}
 
                 {activeTab === 'brandCenter' && (
-                    <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-6">
-                        <Card className="p-6 border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-                            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-6">
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-brand-primary mb-2">Brand Kit Visual 360</p>
-                                    <h3 className="text-2xl font-black text-neutral-900 dark:text-white tracking-tight">Centro de Marca real</h3>
-                                    <p className="text-sm text-neutral-500 max-w-2xl mt-1">Define identidad verbal + identidad visual. Goatify usa esto para copies, prompts de imagen, guiones de video, pautas, calendario y coherencia de campañas.</p>
-                                </div>
-                                <Button size="sm" variant="secondary" onClick={newBrand}><Icon name="plus" className="w-4 h-4"/> Nueva marca</Button>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <Input value={brandDraft.name} onChange={e => setBrandDraft({ ...brandDraft, name: e.target.value })} placeholder="Nombre de marca" />
-                                <Input value={brandDraft.whatsapp} onChange={e => setBrandDraft({ ...brandDraft, whatsapp: e.target.value })} placeholder="WhatsApp / canal de cierre" />
-                                <Textarea value={brandDraft.description} onChange={e => setBrandDraft({ ...brandDraft, description: e.target.value })} rows={3} placeholder="Descripción de la marca" />
-                                <Textarea value={brandDraft.audience} onChange={e => setBrandDraft({ ...brandDraft, audience: e.target.value })} rows={3} placeholder="Público ideal / buyer persona" />
-                                <Textarea value={brandDraft.tone} onChange={e => setBrandDraft({ ...brandDraft, tone: e.target.value })} rows={3} placeholder="Tono de comunicación" />
-                                <Textarea value={brandDraft.offer} onChange={e => setBrandDraft({ ...brandDraft, offer: e.target.value })} rows={3} placeholder="Oferta principal" />
-                                <Textarea value={(brandDraft as any).brandPromise || ''} onChange={e => setBrandDraft({ ...brandDraft, brandPromise: e.target.value } as any)} rows={3} placeholder="Promesa de marca / transformación que vende" />
-                                <Textarea value={brandDraft.links} onChange={e => setBrandDraft({ ...brandDraft, links: e.target.value })} rows={3} placeholder="Links importantes" />
-                            </div>
-
-                            <div className="mt-6 p-5 rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950">
-                                <div className="flex items-center justify-between gap-3 mb-4">
-                                    <div>
-                                        <h4 className="font-black text-neutral-900 dark:text-white">Identidad visual</h4>
-                                        <p className="text-xs text-neutral-500">Logo, paleta, tipografía, estilo de imagen y reglas de composición.</p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {['colorPrimary','colorSecondary','colorAccent'].map((field) => (
-                                            <input
-                                                key={field}
-                                                type="color"
-                                                value={(brandDraft as any)[field] || (field === 'colorPrimary' ? '#4c1d95' : field === 'colorSecondary' ? '#6d28d9' : '#8b5cf6')}
-                                                onChange={e => setBrandDraft({ ...brandDraft, [field]: e.target.value } as any)}
-                                                className="w-9 h-9 rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-700 bg-transparent"
-                                                title={field}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                                    {[
-                                        { field: 'logoUrl', label: 'Logo principal', icon: 'image' },
-                                        { field: 'coverUrl', label: 'Cover / Hero', icon: 'image' },
-                                        { field: 'moodboardUrl', label: 'Moodboard', icon: 'ai' }
-                                    ].map((asset: any) => (
-                                        <label key={asset.field} className="group cursor-pointer p-4 rounded-2xl border border-dashed border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 hover:border-brand-primary transition-all min-h-[150px] flex flex-col items-center justify-center text-center overflow-hidden">
-                                            {(brandDraft as any)[asset.field] ? (
-                                                <img src={(brandDraft as any)[asset.field]} alt={asset.label} className="w-full h-28 object-contain rounded-xl mb-2 bg-neutral-100 dark:bg-neutral-950" />
-                                            ) : (
-                                                <div className="w-14 h-14 rounded-2xl bg-brand-primary/10 text-brand-primary flex items-center justify-center mb-3 group-hover:scale-105 transition-transform"><Icon name={asset.icon} className="w-6 h-6"/></div>
-                                            )}
-                                            <span className="text-xs font-black uppercase tracking-widest text-neutral-500">{asset.label}</span>
-                                            <span className="text-[10px] text-neutral-400 mt-1">Subir / reemplazar</span>
-                                            <input type="file" accept="image/*" className="hidden" onChange={e => uploadBrandAsset(e.target.files?.[0], asset.field)} />
-                                        </label>
-                                    ))}
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <Textarea value={(brandDraft as any).typography || ''} onChange={e => setBrandDraft({ ...brandDraft, typography: e.target.value } as any)} rows={3} placeholder="Tipografías y estilo de texto" />
-                                    <Textarea value={brandDraft.visualStyle} onChange={e => setBrandDraft({ ...brandDraft, visualStyle: e.target.value })} rows={3} placeholder="Estilo visual general" />
-                                    <Textarea value={(brandDraft as any).imageryStyle || ''} onChange={e => setBrandDraft({ ...brandDraft, imageryStyle: e.target.value } as any)} rows={3} placeholder="Estilo de imágenes / fotografía / renders" />
-                                    <Textarea value={(brandDraft as any).layoutRules || ''} onChange={e => setBrandDraft({ ...brandDraft, layoutRules: e.target.value } as any)} rows={3} placeholder="Reglas de layout: aire, jerarquía, composición" />
-                                    <Textarea value={(brandDraft as any).templateStyle || ''} onChange={e => setBrandDraft({ ...brandDraft, templateStyle: e.target.value } as any)} rows={3} placeholder="Plantillas preferidas: carrusel, reels, posts, anuncios" />
-                                    <Textarea value={(brandDraft as any).assetNotes || ''} onChange={e => setBrandDraft({ ...brandDraft, assetNotes: e.target.value } as any)} rows={3} placeholder="Notas de assets: usar/no usar logos, fotos, iconos" />
-                                </div>
-                            </div>
-
-                            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <Textarea value={brandDraft.hashtagsBase} onChange={e => setBrandDraft({ ...brandDraft, hashtagsBase: e.target.value })} rows={3} placeholder="Hashtags base" />
-                                <Textarea value={brandDraft.ctas} onChange={e => setBrandDraft({ ...brandDraft, ctas: e.target.value })} rows={3} placeholder="CTAs favoritos" />
-                                <Textarea value={brandDraft.wordsYes} onChange={e => setBrandDraft({ ...brandDraft, wordsYes: e.target.value })} rows={3} placeholder="Palabras que sí usa" />
-                                <Textarea value={brandDraft.wordsNo} onChange={e => setBrandDraft({ ...brandDraft, wordsNo: e.target.value })} rows={3} placeholder="Palabras prohibidas" />
-                                <Textarea value={brandDraft.objections} onChange={e => setBrandDraft({ ...brandDraft, objections: e.target.value })} rows={3} placeholder="Objeciones frecuentes" />
-                                <Textarea value={(brandDraft as any).competitorNotes || ''} onChange={e => setBrandDraft({ ...brandDraft, competitorNotes: e.target.value } as any)} rows={3} placeholder="Competidores, referentes y diferenciadores" />
-                            </div>
-
-                            <div className="mt-3">
-                                <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Referencias visuales / links / inspiración</label>
-                                <Textarea value={(brandDraft as any).referenceLinks || ''} onChange={e => setBrandDraft({ ...brandDraft, referenceLinks: e.target.value } as any)} rows={3} />
-                            </div>
-                            <div className="mt-3">
-                                <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Memoria libre de contenido</label>
-                                <Textarea value={contentMemory} onChange={e => setContentMemory(e.target.value)} rows={7} />
-                            </div>
-                            <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                <p className="text-xs text-neutral-500">Tip: mientras más completo esté el Brand Kit, menos genérico sale el contenido y más coherentes salen las imágenes.</p>
-                                <Button onClick={saveBrand}><Icon name="check" className="w-4 h-4"/> Guardar Brand Kit</Button>
-                            </div>
-                        </Card>
-
-                        <div className="space-y-4">
-                            <Card className="p-5 border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-                                <div className="rounded-3xl p-5 text-white relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${(brandDraft as any).colorPrimary || '#4c1d95'}, ${(brandDraft as any).colorSecondary || '#6d28d9'}, ${(brandDraft as any).colorAccent || '#8b5cf6'})` }}>
-                                    <div className="absolute -right-10 -top-10 w-36 h-36 rounded-full bg-white/10 blur-2xl" />
-                                    <div className="relative z-10 flex items-center gap-3 mb-6">
-                                        {(brandDraft as any).logoUrl ? <img src={(brandDraft as any).logoUrl} alt="Logo" className="w-14 h-14 object-contain rounded-2xl bg-white/90 p-2" /> : <div className="w-14 h-14 rounded-2xl bg-white/15 flex items-center justify-center font-black text-xl">{(brandDraft.name || 'G').charAt(0)}</div>}
-                                        <div>
-                                            <h4 className="text-xl font-black leading-tight">{brandDraft.name || 'Mi marca'}</h4>
-                                            <p className="text-xs text-white/75 uppercase tracking-widest font-black">Preview visual</p>
-                                        </div>
-                                    </div>
-                                    <p className="relative z-10 text-sm text-white/90 line-clamp-4">{(brandDraft as any).brandPromise || brandDraft.description || 'Aquí se verá la promesa, personalidad e identidad visual de la marca.'}</p>
-                                    <div className="relative z-10 mt-5 flex flex-wrap gap-2">
-                                        {[brandDraft.tone, (brandDraft as any).templateStyle, (brandDraft as any).imageryStyle].filter(Boolean).slice(0,3).map((item: any, i: number) => <span key={i} className="px-2 py-1 rounded-full bg-white/15 text-[10px] font-black uppercase">{String(item).slice(0,28)}</span>)}
-                                    </div>
-                                </div>
-                            </Card>
-
-                            <Card className="p-5 border border-neutral-200 dark:border-neutral-800">
-                                <h4 className="font-black mb-3">Marcas guardadas</h4>
-                                <div className="space-y-2 max-h-[360px] overflow-auto custom-scrollbar pr-1">
-                                    {brands.length === 0 && <p className="text-sm text-neutral-500">Aún no hay marcas guardadas.</p>}
-                                    {brands.map(b => <button key={b.id} onClick={() => { setSelectedBrandId(b.id); setBrandDraft(b); setContentMemory(b.contentMemory || defaultContentMemory); }} className={`w-full text-left p-3 rounded-2xl border flex items-center gap-3 ${selectedBrandId === b.id ? 'border-brand-primary bg-brand-primary/5' : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900'}`}>{(b as any).logoUrl ? <img src={(b as any).logoUrl} className="w-10 h-10 object-contain rounded-xl bg-white dark:bg-neutral-950 p-1"/> : <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black" style={{ background: (b as any).colorPrimary || '#4c1d95' }}>{b.name.charAt(0)}</div>}<div className="min-w-0"><p className="font-black text-sm truncate">{b.name}</p><p className="text-[11px] text-neutral-500 line-clamp-2">{b.description || b.tone}</p></div></button>)}
-                                </div>
-                            </Card>
-
-                            <Card className="p-5 border border-neutral-200 dark:border-neutral-800">
-                                <h4 className="font-black mb-3">Checklist de marca fuerte</h4>
-                                <div className="space-y-2 text-xs text-neutral-600 dark:text-neutral-300">
-                                    {[
-                                        ['Logo cargado', !!(brandDraft as any).logoUrl],
-                                        ['Paleta definida', !!((brandDraft as any).colorPrimary && (brandDraft as any).colorSecondary && (brandDraft as any).colorAccent)],
-                                        ['Promesa clara', !!(brandDraft as any).brandPromise],
-                                        ['Público ideal', !!brandDraft.audience],
-                                        ['Estilo visual', !!brandDraft.visualStyle],
-                                        ['Palabras prohibidas', !!brandDraft.wordsNo]
-                                    ].map(([label, ok]: any) => <div key={label} className="flex items-center justify-between p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900"><span>{label}</span><span className={`text-[10px] font-black ${ok ? 'text-emerald-500' : 'text-amber-500'}`}>{ok ? 'OK' : 'Pendiente'}</span></div>)}
-                                </div>
-                            </Card>
-                        </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <Card className="p-6 lg:col-span-2 border border-neutral-200 dark:border-neutral-800"><div className="flex items-center justify-between gap-3 mb-4"><div><h3 className="text-xl font-black">Centro de Marca</h3><p className="text-sm text-neutral-500">Memoria clara por marca: tono, oferta, público, links, CTAs, objeciones y estilo visual.</p></div><Button size="sm" variant="secondary" onClick={newBrand}>Nueva marca</Button></div><div className="grid grid-cols-1 md:grid-cols-2 gap-3"><Input value={brandDraft.name} onChange={e => setBrandDraft({ ...brandDraft, name: e.target.value })} placeholder="Nombre de marca"/><Input value={brandDraft.whatsapp} onChange={e => setBrandDraft({ ...brandDraft, whatsapp: e.target.value })} placeholder="WhatsApp"/><Textarea value={brandDraft.description} onChange={e => setBrandDraft({ ...brandDraft, description: e.target.value })} rows={3} placeholder="Descripción de la marca"/><Textarea value={brandDraft.audience} onChange={e => setBrandDraft({ ...brandDraft, audience: e.target.value })} rows={3} placeholder="Público ideal"/><Textarea value={brandDraft.tone} onChange={e => setBrandDraft({ ...brandDraft, tone: e.target.value })} rows={3} placeholder="Tono de comunicación"/><Textarea value={brandDraft.offer} onChange={e => setBrandDraft({ ...brandDraft, offer: e.target.value })} rows={3} placeholder="Oferta principal"/><Textarea value={brandDraft.links} onChange={e => setBrandDraft({ ...brandDraft, links: e.target.value })} rows={3} placeholder="Links importantes"/><Textarea value={brandDraft.hashtagsBase} onChange={e => setBrandDraft({ ...brandDraft, hashtagsBase: e.target.value })} rows={3} placeholder="Hashtags base"/><Textarea value={brandDraft.wordsYes} onChange={e => setBrandDraft({ ...brandDraft, wordsYes: e.target.value })} rows={3} placeholder="Palabras que sí usa"/><Textarea value={brandDraft.wordsNo} onChange={e => setBrandDraft({ ...brandDraft, wordsNo: e.target.value })} rows={3} placeholder="Palabras prohibidas"/><Textarea value={brandDraft.ctas} onChange={e => setBrandDraft({ ...brandDraft, ctas: e.target.value })} rows={3} placeholder="CTAs favoritos"/><Textarea value={brandDraft.objections} onChange={e => setBrandDraft({ ...brandDraft, objections: e.target.value })} rows={3} placeholder="Objeciones frecuentes"/></div><div className="mt-3"><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Estilo visual</label><Textarea value={brandDraft.visualStyle} onChange={e => setBrandDraft({ ...brandDraft, visualStyle: e.target.value })} rows={3}/></div><div className="mt-3"><label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Memoria libre de contenido</label><Textarea value={contentMemory} onChange={e => setContentMemory(e.target.value)} rows={8}/></div><div className="mt-4 flex justify-end"><Button onClick={saveBrand}><Icon name="check" className="w-4 h-4"/> Guardar Centro de Marca</Button></div></Card>
+                        <div className="space-y-4"><Card className="p-5 border border-neutral-200 dark:border-neutral-800"><h4 className="font-black mb-3">Marcas guardadas</h4><div className="space-y-2">{brands.length === 0 && <p className="text-sm text-neutral-500">Aún no hay marcas guardadas.</p>}{brands.map(b => <button key={b.id} onClick={() => { setSelectedBrandId(b.id); setBrandDraft(b); setContentMemory(b.contentMemory || defaultContentMemory); }} className={`w-full text-left p-3 rounded-xl border ${selectedBrandId === b.id ? 'border-brand-primary bg-brand-primary/5' : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900'}`}><p className="font-black text-sm">{b.name}</p><p className="text-[11px] text-neutral-500 line-clamp-2">{b.description || b.tone}</p></button>)}</div></Card><Card className="p-5 border border-neutral-200 dark:border-neutral-800"><h4 className="font-black mb-3">Valor real</h4><p className="text-sm text-neutral-500">Mientras más completo esté el Centro de Marca, menos genérico sale el contenido. Goatify usa estos datos en campañas, prompts visuales, guiones, pautas y calendario.</p></Card></div>
                     </div>
                 )}
 
