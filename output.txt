@@ -1,0 +1,8 @@
+    window.addEventListener('goatify-open-draft', handleOpenDraft);
+      window.removeEventListener('goatify-open-draft', handleOpenDraft);
+    'drafts': 'Borradores',
+          await fetch('/api/drafts', {
+          if (currentFolder === 'drafts') fetchEmails();
+          console.error("Error saving draft", e);
+            { id: 'drafts', label: 'Borradores', icon: FileText },
+                            if (currentFolder === 'drafts') {

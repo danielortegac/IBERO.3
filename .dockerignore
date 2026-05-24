@@ -14,14 +14,3 @@ coverage
 *.zip
 *.log
 .DS_Store
-
-# Ignore stale CSS build configs from older/remix copies.
-# This app currently uses Tailwind via CDN in index.html, so these files are not required
-# for Cloud Run builds and can break Vite if copied without matching dependencies.
-postcss.config.js
-postcss.config.cjs
-postcss.config.mjs
-tailwind.config.js
-tailwind.config.cjs
-tailwind.config.mjs
-dist-server
