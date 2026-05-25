@@ -473,6 +473,7 @@ const AiChat: React.FC<AiChatProps> = ({ isOpen, onClose }) => {
     const finalHistory = [...currentHistory, finalModelMsg];
     setGlobalChats(prev => prev.map(c => c.id === chatId ? { ...c, history: finalHistory } : c));
     setIsLoading(false); 
+    window.dispatchEvent(new CustomEvent('goatify:usage-updated', { detail: { source: 'quick_chat_stream_finished' } }));
     await saveChatHistoryToDb(chatId, finalHistory);
   };
 

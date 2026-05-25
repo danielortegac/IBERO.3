@@ -68,6 +68,8 @@ const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, clas
       imagesLimit: limits.ai_images_monthly || 0,
       webUsed: counters.monthly_web_ops_used || 0,
       webLimit: limits.web_programmer_ops || 0,
+      groundingUsed: counters.monthly_grounding_used || 0,
+      groundingLimit: limits.grounding_monthly || 0,
       presentationsUsed: counters.monthly_presentations_used || 0,
       presentationsLimit: limits.presentations_monthly || 0,
       sitesUsed: counters.current_published_sites || 0,
@@ -85,6 +87,7 @@ const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, clas
     { label: 'IA diaria', used: metrics.chatUsed, limit: metrics.chatLimit, accent: 'text-brand-primary' },
     { label: 'Social', used: metrics.postsUsed, limit: metrics.postsLimit, accent: 'text-purple-600 dark:text-purple-300' },
     { label: 'Imágenes', used: metrics.imagesUsed, limit: metrics.imagesLimit, accent: 'text-pink-600 dark:text-pink-300' },
+    { label: 'Búsqueda', used: metrics.groundingUsed, limit: metrics.groundingLimit, accent: 'text-cyan-600 dark:text-cyan-300' },
     { label: 'Web ops', used: metrics.webUsed, limit: metrics.webLimit, accent: 'text-blue-600 dark:text-blue-300' },
     { label: 'Presentaciones', used: metrics.presentationsUsed, limit: metrics.presentationsLimit, accent: 'text-amber-600 dark:text-amber-300' },
     { label: 'Sitios', used: metrics.sitesUsed, limit: metrics.sitesLimit, accent: 'text-emerald-600 dark:text-emerald-300' }
@@ -99,7 +102,8 @@ const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, clas
         </div>
         <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-700"></div>
         <span className="text-[9px] font-black text-brand-primary whitespace-nowrap">IA {metrics.chatUsed}/{formatLimit(metrics.chatLimit)}</span>
-        <span className="hidden sm:inline text-[9px] font-black text-purple-600 dark:text-purple-300 whitespace-nowrap">Social {metrics.postsUsed}/{formatLimit(metrics.postsLimit)}</span>
+        <span className="hidden sm:inline text-[9px] font-black text-cyan-600 dark:text-cyan-300 whitespace-nowrap">Web {metrics.groundingUsed}/{formatLimit(metrics.groundingLimit)}</span>
+        <span className="hidden md:inline text-[9px] font-black text-purple-600 dark:text-purple-300 whitespace-nowrap">Social {metrics.postsUsed}/{formatLimit(metrics.postsLimit)}</span>
         <button onClick={() => setProModalOpen(true)} className="rounded-full bg-brand-primary px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-white shadow hover:scale-105 active:scale-95 transition-transform">
           Subir
         </button>

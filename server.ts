@@ -1089,6 +1089,62 @@ async function startServer() {
   const SERVER_MONTHLY_USAGE_KEYS = Array.from(new Set(Object.values(SERVER_FEATURE_LIMIT_MAP).filter(v => v.reset === 'monthly').map(v => v.usageKey)));
   const SERVER_DAILY_USAGE_KEYS = Array.from(new Set(Object.values(SERVER_FEATURE_LIMIT_MAP).filter(v => v.reset === 'daily').map(v => v.usageKey)));
 
+  const COUNTRY_TIMEZONE_MAP: Record<string, string> = {
+    Ecuador: 'America/Guayaquil', Mexico: 'America/Mexico_City', Colombia: 'America/Bogota', Peru: 'America/Lima',
+    'United States': 'America/New_York', Canada: 'America/Toronto', Spain: 'Europe/Madrid', Argentina: 'America/Argentina/Buenos_Aires',
+    Chile: 'America/Santiago', Bolivia: 'America/La_Paz', Venezuela: 'America/Caracas', Uruguay: 'America/Montevideo', Paraguay: 'America/Asuncion'
+  };
+
+  function getEffectiveUserTimezone(userData: any = {}) {
+    const explicit = userData?.timezone || userData?.schedulingConfig?.timezone || userData?.settings?.timezone;
+    if (explicit) return String(explicit);
+    const country = String(userData?.country || '').trim();
+    return COUNTRY_TIMEZONE_MAP[country] || 'UTC';
+  }
+
+  function getLocalDateKey(date: Date, timeZone: string) {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+    } catch {
+      return date.toISOString().split('T')[0];
+    }
+  }
+
+  async function refreshUsageRollover(uid: string, userData: any = {}, usageRef = firestore.collection('user_usage').doc(uid)) {
+    const timeZone = getEffectiveUserTimezone(userData);
+    await firestore.runTransaction(async (tx) => {
+      const snap = await tx.get(usageRef);
+      if (!snap.exists) return;
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const nextMonth = new Date(now);
+      nextMonth.setMonth(now.getMonth() + 1);
+      const data: any = snap.data() || {};
+      const counters: any = { ...(data.counters || {}) };
+      const updates: any = { 'counters.last_activity': counters.last_activity || nowIso };
+      const currentDailyKey = getLocalDateKey(now, timeZone);
+      const lastDailyKey = counters.last_daily_reset ? getLocalDateKey(new Date(counters.last_daily_reset), timeZone) : '';
+
+      if (currentDailyKey !== lastDailyKey) {
+        for (const key of SERVER_DAILY_USAGE_KEYS) updates[`counters.${key}`] = 0;
+        updates['counters.last_daily_reset'] = nowIso;
+        updates['counters.last_daily_reset_key'] = currentDailyKey;
+      }
+
+      const billingEnd = data.billing_cycle_end ? new Date(data.billing_cycle_end) : nextMonth;
+      if (now >= billingEnd) {
+        for (const key of SERVER_MONTHLY_USAGE_KEYS) updates[`counters.${key}`] = 0;
+        updates.billing_cycle_start = nowIso;
+        updates.billing_cycle_end = nextMonth.toISOString();
+        updates.total_cost_usd = 0;
+        updates.tokens_in = 0;
+        updates.tokens_out = 0;
+      }
+
+      if (Object.keys(updates).length > 0) tx.set(usageRef, updates, { merge: true });
+    });
+  }
+
   function serverModuleChatCost(moduleName?: string | null): number {
     const m = String(moduleName || 'chat').toLowerCase();
     if (['web', 'contracts', 'cfo', 'media', 'summaries'].includes(m)) return 2;
@@ -1207,13 +1263,16 @@ async function startServer() {
         tx.set(usageRef, defaultUsage, { merge: true });
       }
 
-      const lastDaily = counters.last_daily_reset ? new Date(counters.last_daily_reset) : new Date(0);
-      if (now.getUTCDate() !== lastDaily.getUTCDate() || now.getUTCMonth() !== lastDaily.getUTCMonth() || now.getUTCFullYear() !== lastDaily.getUTCFullYear()) {
+      const userTimezone = getEffectiveUserTimezone(userData);
+      const currentDailyKey = getLocalDateKey(now, userTimezone);
+      const lastDailyKey = counters.last_daily_reset ? getLocalDateKey(new Date(counters.last_daily_reset), userTimezone) : '';
+      if (currentDailyKey !== lastDailyKey) {
         for (const key of SERVER_DAILY_USAGE_KEYS) {
           counters[key] = 0;
           updates[`counters.${key}`] = 0;
         }
         updates[`counters.last_daily_reset`] = nowIso;
+        updates[`counters.last_daily_reset_key`] = currentDailyKey;
       }
 
       const billingEnd = rawUsage.billing_cycle_end ? new Date(rawUsage.billing_cycle_end) : nextMonth;
@@ -1361,7 +1420,9 @@ async function startServer() {
         await usageRef.set(defaultUsage, { merge: true });
         return res.json({ ok: true, usage: defaultUsage });
       }
-      const usage = usageSnap.data() || {};
+      await refreshUsageRollover(uid, userData, usageRef);
+      const freshSnap = await usageRef.get();
+      const usage = freshSnap.data() || usageSnap.data() || {};
       return res.json({ ok: true, usage: { ...usage, plan_id: plan, counters: { ...serverDefaultCounters(nowIso), ...(usage.counters || {}) } } });
     } catch (e: any) {
       return res.status(500).json({ ok: false, error: e?.message || 'No se pudo leer uso actual.' });
@@ -1411,20 +1472,61 @@ async function startServer() {
   }
 
   app.post('/api/usage/sync', requireFirebaseUser, async (req: any, res: any) => {
+    // V19 FIX: este endpoint NUNCA debe resetear contadores existentes.
+    // Antes se ejecutaba desde el listener del perfil y dejaba IA/Social siempre en 0.
+    // Ahora solo asegura que exista el documento, actualiza plan/ciclo y conserva counters.
     const uid = req.user.uid;
     const userSnap = await firestore.collection('users').doc(uid).get();
-    const userPlan = String((userSnap.data() || {}).plan || req.body?.plan || 'free').toLowerCase();
+    const userData: any = userSnap.data() || {};
+    const rawPlan = String(userData.plan || req.body?.plan || 'free').toLowerCase();
+    const userPlan = SERVER_PLAN_LIMITS[rawPlan] ? rawPlan : 'free';
     const now = new Date();
+    const nowIso = now.toISOString();
     const nextMonth = new Date(now);
     nextMonth.setMonth(now.getMonth() + 1);
-    await firestore.collection('user_usage').doc(uid).set({
-      user_id: uid,
-      plan_id: SERVER_PLAN_LIMITS[userPlan] ? userPlan : 'free',
-      billing_cycle_start: now.toISOString(),
-      billing_cycle_end: nextMonth.toISOString(),
-      counters: { ...serverDefaultCounters(now.toISOString()) }
-    }, { merge: true });
-    return res.json({ ok: true });
+    const usageRef = firestore.collection('user_usage').doc(uid);
+
+    await firestore.runTransaction(async (tx) => {
+      const snap = await tx.get(usageRef);
+      if (!snap.exists) {
+        tx.set(usageRef, {
+          user_id: uid,
+          plan_id: userPlan,
+          total_cost_usd: 0,
+          tokens_in: 0,
+          tokens_out: 0,
+          billing_cycle_start: nowIso,
+          billing_cycle_end: nextMonth.toISOString(),
+          counters: serverDefaultCounters(nowIso)
+        }, { merge: true });
+        return;
+      }
+
+      const data: any = snap.data() || {};
+      const counters: any = { ...(data.counters || {}) };
+      const updates: any = {
+        user_id: uid,
+        plan_id: userPlan,
+        'counters.last_activity': counters.last_activity || nowIso
+      };
+
+      // Solo inicializa campos faltantes, sin pisar valores ya consumidos.
+      const defaults = serverDefaultCounters(nowIso) as any;
+      Object.keys(defaults).forEach((key) => {
+        if (typeof counters[key] === 'undefined') updates[`counters.${key}`] = defaults[key];
+      });
+      if (!data.billing_cycle_start) updates.billing_cycle_start = nowIso;
+      if (!data.billing_cycle_end) updates.billing_cycle_end = nextMonth.toISOString();
+      if (typeof data.total_cost_usd === 'undefined') updates.total_cost_usd = 0;
+      if (typeof data.tokens_in === 'undefined') updates.tokens_in = 0;
+      if (typeof data.tokens_out === 'undefined') updates.tokens_out = 0;
+
+      tx.set(usageRef, updates, { merge: true });
+    });
+
+    await refreshUsageRollover(uid, userData, usageRef);
+    const updatedSnap = await usageRef.get();
+    return res.json({ ok: true, usage: updatedSnap.data() || null });
   });
 
   app.post('/api/usage/recalculate', requireFirebaseUser, async (req: any, res: any) => {
@@ -1439,19 +1541,23 @@ async function startServer() {
       const snap = await tx.get(usageRef);
       const now = new Date();
       const nowIso = now.toISOString();
-      const today = now.toISOString().split('T')[0];
+      const userSnap = await tx.get(firestore.collection('users').doc(uid));
+      const userData: any = userSnap.exists ? (userSnap.data() || {}) : {};
+      const userTimezone = getEffectiveUserTimezone(userData);
+      const today = getLocalDateKey(now, userTimezone);
       if (!snap.exists) {
-        tx.set(usageRef, { user_id: uid, counters: { ...serverDefaultCounters(nowIso), daily_entry_count: 1, last_entry_date: today } }, { merge: true });
+        tx.set(usageRef, { user_id: uid, counters: { ...serverDefaultCounters(nowIso), daily_entry_count: 1, last_entry_date: today, last_daily_reset_key: today } }, { merge: true });
         return;
       }
       const data: any = snap.data() || {};
       const counters = data.counters || {};
-      const lastDaily = counters.last_daily_reset ? new Date(counters.last_daily_reset) : new Date(0);
+      const lastDailyKey = counters.last_daily_reset ? getLocalDateKey(new Date(counters.last_daily_reset), userTimezone) : '';
       const updates: any = { 'counters.last_entry_date': today, 'counters.last_activity': nowIso };
-      if (now.getUTCDate() !== lastDaily.getUTCDate() || now.getUTCMonth() !== lastDaily.getUTCMonth() || now.getUTCFullYear() !== lastDaily.getUTCFullYear()) {
+      if (today !== lastDailyKey) {
         for (const key of SERVER_DAILY_USAGE_KEYS) updates[`counters.${key}`] = 0;
         updates['counters.daily_entry_count'] = 1;
         updates['counters.last_daily_reset'] = nowIso;
+        updates['counters.last_daily_reset_key'] = today;
       } else {
         updates['counters.daily_entry_count'] = admin.firestore.FieldValue.increment(1);
       }

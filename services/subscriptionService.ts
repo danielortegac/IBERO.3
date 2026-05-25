@@ -40,6 +40,24 @@ const uniqueUsageKeysByReset = (reset: 'daily' | 'monthly' | 'none') => Array.fr
 export const MONTHLY_USAGE_KEYS = uniqueUsageKeysByReset('monthly');
 export const DAILY_USAGE_KEYS = uniqueUsageKeysByReset('daily');
 
+const COUNTRY_TIMEZONE_MAP: Record<string, string> = {
+    Ecuador: 'America/Guayaquil', Mexico: 'America/Mexico_City', Colombia: 'America/Bogota', Peru: 'America/Lima',
+    'United States': 'America/New_York', Canada: 'America/Toronto', Spain: 'Europe/Madrid', Argentina: 'America/Argentina/Buenos_Aires',
+    Chile: 'America/Santiago', Bolivia: 'America/La_Paz', Venezuela: 'America/Caracas', Uruguay: 'America/Montevideo', Paraguay: 'America/Asuncion'
+};
+
+const getClientTimezone = (userData: any = {}) => {
+    return userData?.timezone || userData?.schedulingConfig?.timezone || COUNTRY_TIMEZONE_MAP[String(userData?.country || '').trim()] || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+};
+
+const getLocalDateKey = (date: Date, timeZone: string) => {
+    try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+    } catch {
+        return date.toISOString().split('T')[0];
+    }
+};
+
 
 const callUsageApi = async (path: string, body: Record<string, any> = {}) => {
     const token = await auth.currentUser?.getIdToken();
@@ -242,8 +260,10 @@ export const canUseLimit = async (userId: string, featureKey: FeatureKey, amount
         if (isSuperAdmin) return true;
 
         let counters: any = { ...(usageData.counters as any) };
-        const lastReset = counters.last_daily_reset ? new Date(counters.last_daily_reset) : new Date(0);
-        if (now.getUTCDate() !== lastReset.getUTCDate() || now.getUTCMonth() !== lastReset.getUTCMonth() || now.getUTCFullYear() !== lastReset.getUTCFullYear()) {
+        const userTimezone = getClientTimezone(userData);
+        const currentDailyKey = getLocalDateKey(now, userTimezone);
+        const lastDailyKey = counters.last_daily_reset ? getLocalDateKey(new Date(counters.last_daily_reset), userTimezone) : '';
+        if (currentDailyKey !== lastDailyKey) {
             DAILY_USAGE_KEYS.forEach(k => counters[k] = 0);
         }
         const billingEnd = usageData.billing_cycle_end ? new Date(usageData.billing_cycle_end) : nextMonth;

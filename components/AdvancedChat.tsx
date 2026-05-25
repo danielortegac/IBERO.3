@@ -852,6 +852,7 @@ const AdvancedChat: React.FC<AdvancedChatProps> = ({ isGlobal, chatHistory, setC
         else if (setChatHistory) setChatHistory(() => finalHistory);
         
         setIsLoading(false); 
+        window.dispatchEvent(new CustomEvent('goatify:usage-updated', { detail: { source: 'advanced_chat_stream_finished' } }));
         await saveToDatabase(finalHistory);
     };
 
