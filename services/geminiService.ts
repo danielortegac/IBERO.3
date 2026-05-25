@@ -250,6 +250,11 @@ export async function executeAiWithFallback(prompt: string, systemInstruction: s
         }
 
         const data = await response.json();
+        if (data?.usageUpdated) {
+            window.dispatchEvent(new CustomEvent('goatify:usage-updated', {
+                detail: { featureKey: data.featureKey, amount: data.amount || 1, usage: data.usage }
+            }));
+        }
         
         if (data.text) {
             if (userId) {
@@ -592,6 +597,12 @@ REGLAS CRÍTICAS DE ACTUALIDAD:
                         if (dataStr === '[DONE]') break;
                         try {
                             const data = JSON.parse(dataStr);
+                            if (data?.usageUpdated) {
+                                window.dispatchEvent(new CustomEvent('goatify:usage-updated', {
+                                    detail: { featureKey: data.featureKey, amount: data.amount || 1, usage: data.usage }
+                                }));
+                                continue;
+                            }
                             yield data;
                         } catch (e) {}
                     }
@@ -2193,6 +2204,11 @@ export const generateImage = async (prompt: string, aspectRatio: AspectRatio): P
             );
         }
         const data = await response.json();
+        if (data?.usageUpdated) {
+            window.dispatchEvent(new CustomEvent('goatify:usage-updated', {
+                detail: { featureKey: data.featureKey, amount: data.amount || 1, usage: data.usage }
+            }));
+        }
         return data.imageUrl; // data:image/png;base64,...
     } catch (e: any) {
         throw new Error(e.message || "Error de generación de imagen");

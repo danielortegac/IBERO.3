@@ -39,14 +39,46 @@ const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, clas
       }
     };
     refreshUsage();
-    const onRefresh = () => refreshUsage();
-    window.addEventListener('focus', onRefresh);
-    window.addEventListener('goatify:usage-updated', onRefresh as EventListener);
+    const onFocusRefresh = () => refreshUsage();
+    const onUsageUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (detail.usage) {
+        setLiveUsage(detail.usage);
+      } else if (detail.featureKey) {
+        const amount = Math.max(1, Number(detail.amount || 1));
+        const map: Record<string, string> = {
+          ai_chat: 'daily_chat_count',
+          ai_grounding: 'monthly_grounding_used',
+          ai_image: 'monthly_images_used',
+          social_post: 'monthly_posts_used',
+          web_programmer: 'monthly_web_ops_used',
+          presentation: 'monthly_presentations_used',
+          site_publish: 'current_published_sites',
+          storage: 'current_storage_bytes'
+        };
+        const counterKey = map[detail.featureKey];
+        if (counterKey) {
+          setLiveUsage((prev: any) => {
+            const base = prev || userUsage || { counters: {} };
+            return {
+              ...base,
+              counters: {
+                ...(base.counters || {}),
+                [counterKey]: Math.max(0, Number((base.counters || {})[counterKey] || 0) + (detail.released ? -amount : amount))
+              }
+            };
+          });
+        }
+      }
+      window.setTimeout(refreshUsage, 400);
+    };
+    window.addEventListener('focus', onFocusRefresh);
+    window.addEventListener('goatify:usage-updated', onUsageUpdated as EventListener);
     const interval = window.setInterval(refreshUsage, 20000);
     return () => {
       cancelled = true;
-      window.removeEventListener('focus', onRefresh);
-      window.removeEventListener('goatify:usage-updated', onRefresh as EventListener);
+      window.removeEventListener('focus', onFocusRefresh);
+      window.removeEventListener('goatify:usage-updated', onUsageUpdated as EventListener);
       window.clearInterval(interval);
     };
   }, []);

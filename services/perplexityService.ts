@@ -30,7 +30,13 @@ export const searchWithPerplexity = async (query: string): Promise<PerplexityRes
             throw new Error(`Perplexity Proxy Error: ${response.statusText}`);
         }
 
-        return await response.json();
+        const data = await response.json();
+        if (data?.usageUpdated) {
+            window.dispatchEvent(new CustomEvent('goatify:usage-updated', {
+                detail: { featureKey: data.featureKey, amount: data.amount || 1, usage: data.usage }
+            }));
+        }
+        return data;
     } catch (error) {
         console.error("Fallo en búsqueda Perplexity:", error);
         return {

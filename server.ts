@@ -1359,6 +1359,38 @@ async function startServer() {
     return res.status(status).json({ ok: false, error: e?.message || 'Límite del plan alcanzado.', code: 'PLAN_LIMIT_REACHED' });
   }
 
+  async function getCurrentUsagePayload(uid: string) {
+    try {
+      const userSnap = await firestore.collection('users').doc(uid).get();
+      const userData: any = userSnap.exists ? (userSnap.data() || {}) : {};
+      const usageRef = firestore.collection('user_usage').doc(uid);
+      await refreshUsageRollover(uid, userData, usageRef);
+      const snap = await usageRef.get();
+      const nowIso = new Date().toISOString();
+      let plan = String(userData.plan || 'free').toLowerCase();
+      if (String(userData.subscriptionStatus || 'active').toLowerCase() === 'canceled') plan = 'free';
+      if (!SERVER_PLAN_LIMITS[plan]) plan = 'free';
+      const raw: any = snap.exists ? (snap.data() || {}) : {};
+      return {
+        user_id: uid,
+        ...raw,
+        plan_id: plan,
+        counters: { ...serverDefaultCounters(nowIso), ...(raw.counters || {}) }
+      };
+    } catch (e) {
+      console.warn('[USAGE CURRENT PAYLOAD] No se pudo leer uso actual:', e);
+      return null;
+    }
+  }
+
+  function sendUsageSse(res: any, usage: any, featureKey: string, amount: number) {
+    try {
+      res.write(`data: ${JSON.stringify({ usageUpdated: true, featureKey, amount, usage })}\n\n`);
+    } catch (e) {
+      console.warn('[USAGE SSE] No se pudo enviar snapshot de uso:', e);
+    }
+  }
+
 
   // --- USAGE API (SERVER-AUTHORIZED NON-AI COUNTERS) ---
   // V11: métricas de producto como social_post/presentation/web_programmer se consumen desde Cloud Run,
@@ -1790,7 +1822,11 @@ async function startServer() {
       await recordServerUsageTelemetry(req.user.uid, { module: 'search', model: 'perplexity-sonar', usageMetadata: data.usage || {}, isPerplexity: true, fallbackCost: 0.005, action: 'perplexity_search' });
       res.json({
         text: data.choices[0].message.content,
-        citations: data.citations || []
+        citations: data.citations || [],
+        usageUpdated: true,
+        featureKey: 'ai_grounding',
+        amount: 1,
+        usage: await getCurrentUsagePayload(req.user.uid)
       });
     } catch (error) {
       if (creditConsumed) await releaseFeatureConsumption(req, 'ai_grounding', 1);
@@ -4138,7 +4174,11 @@ async function startServer() {
         status: "OK",
         sourceUsed: source,
         modelUsed: targetModel,
-        modelDowngraded: aiPolicy.downgraded
+        modelDowngraded: aiPolicy.downgraded,
+        usageUpdated: true,
+        featureKey: 'ai_chat',
+        amount: creditAmount,
+        usage: await getCurrentUsagePayload(req.user.uid)
       });
     } catch (e: any) {
       if (e?.status === 402) return sendLimitError(res, e);
@@ -4170,7 +4210,7 @@ async function startServer() {
       const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!audioData) throw new Error("TTS failed to generate audio data");
       await recordServerUsageTelemetry(req.user.uid, { module: 'voice', model: 'gemini-3.1-flash-tts-preview', usageMetadata: response.usageMetadata, requestId, fallbackCost: 0.002, action: 'tts' });
-      res.json({ audioData, mimeType: "audio/pcm;rate=24000" });
+      res.json({ audioData, mimeType: "audio/pcm;rate=24000", usageUpdated: true, featureKey: 'voice_command', amount: 1, usage: await getCurrentUsagePayload(req.user.uid) });
     } catch (e: any) {
       if (e?.status === 402) return sendLimitError(res, e);
       if (creditConsumed) await releaseFeatureConsumption(req, 'voice_command', 1);
@@ -4248,7 +4288,11 @@ async function startServer() {
       return res.json({
         imageUrl: `data:image/png;base64,${base64Bytes}`,
         mimeType: "image/png",
-        model: imagenModel
+        model: imagenModel,
+        usageUpdated: true,
+        featureKey: 'ai_image',
+        amount: 1,
+        usage: await getCurrentUsagePayload(req.user.uid)
       });
 
     } catch (e: any) {
@@ -4330,6 +4374,14 @@ async function startServer() {
 
     // Heartbeat inicial para asegurar que el socket está abierto y reducir latencia percibida
     res.write(': heartbeat\n\n');
+
+    // V21: el badge de créditos debe actualizarse de inmediato al consumir el crédito,
+    // no esperar 20s ni depender de que Firestore refresque. Esto también permite verificar
+    // visualmente que IA pasó de 0/30 a 1/30 apenas arranca la respuesta.
+    if (creditConsumed) {
+      const usageSnapshot = await getCurrentUsagePayload(req.user.uid);
+      sendUsageSse(res, usageSnapshot, 'ai_chat', creditAmount);
+    }
 
     try {
       const ai = new GoogleGenAI({ apiKey } as any);
