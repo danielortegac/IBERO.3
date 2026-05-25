@@ -127,74 +127,14 @@ export const pickModel = (plan: string, module: AIModule, budgetMode: BudgetMode
  * Calcula el costo exacto basado en la modalidad y el modelo.
  */
 export const recordUsageTelemetry = async (userId: string, module: AIModule, model: string, usageMetadata: any, requestId?: string, isPerplexity: boolean = false) => {
-    if (!userId) return;
-
-    let totalCost = 0;
-    let tokensIn = 0;
-    let tokensOut = 0;
-
-    if (isPerplexity) {
-        // Registro de costo fijo por búsqueda web
-        totalCost = PRICING.perplexity_search;
-    } else if (usageMetadata) {
-        tokensIn = usageMetadata.promptTokenCount || 0;
-        tokensOut = usageMetadata.candidatesTokenCount || 0;
-        
-        // Determinación de precio por arquitectura
-        let costIn = 0;
-        let costOut = 0;
-
-        if (model.includes('tts')) {
-            costIn = (tokensIn / 1000000) * PRICING['gemini-3.1-flash-tts-preview'].in;
-            costOut = (tokensOut / 1000000) * PRICING['gemini-3.1-flash-tts-preview'].out;
-        } else if (model.includes('native-audio') || model.includes('live')) {
-            costIn = (tokensIn / 1000000) * PRICING['gemini-3.1-flash-live-preview'].in_media;
-            costOut = (tokensOut / 1000000) * PRICING['gemini-3.1-flash-live-preview'].out_audio;
-        } else if (model.includes('imagen')) {
-            costIn = (tokensIn / 1000000) * PRICING['imagen-3.0-generate-002'].in;
-            costOut = (tokensOut / 1000000) * PRICING['imagen-3.0-generate-002'].out;
-        } else {
-            const priceKey = Object.keys(PRICING).find(k => model.includes(k)) || 'default';
-            const price = (PRICING as any)[priceKey] || PRICING.default;
-            costIn = (tokensIn / 1000000) * price.in;
-            costOut = (tokensOut / 1000000) * price.out;
-        }
-        totalCost = costIn + costOut;
-    }
-
-    if (totalCost <= 0) return;
-
+    // V18: tokens/costos ya se registran en Cloud Run con Admin SDK.
+    // El cliente solo notifica a la UI para refrescar los badges y evita escribir user_usage directamente.
     try {
-        if (requestId) {
-            const idempotencyRef = doc(db, `users/${userId}/usage_idempotency`, requestId);
-            const check = await getDoc(idempotencyRef);
-            if (check.exists()) return;
-            await setDoc(idempotencyRef, { processedAt: new Date().toISOString(), totalCost });
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('goatify:usage-updated', { detail: { userId, module, model, requestId, isPerplexity } }));
         }
-
-        const usageRef = doc(db, "user_usage", userId);
-        await updateDoc(usageRef, {
-            tokens_in: increment(tokensIn),
-            tokens_out: increment(tokensOut),
-            total_cost_usd: increment(totalCost),
-            "counters.last_activity": new Date().toISOString()
-        });
-
-        // ACTUALIZACIÓN DE MÉTRICAS GLOBALES EN TIEMPO REAL
-        const globalRef = doc(db, 'stats', 'global_metrics');
-        if (isPerplexity) {
-            await updateDoc(globalRef, { perplexity_calls: increment(1) });
-        } else {
-            await updateDoc(globalRef, { gemini_calls: increment(1) });
-        }
-
-        await addDoc(collection(db, `users/${userId}/usage_logs`), {
-            module, model, cost_usd: totalCost, tokens_in: tokensIn, tokens_out: tokensOut,
-            requestId: requestId || 'none', createdAt: new Date().toISOString(),
-            type: isPerplexity ? 'perplexity_search' : 'gemini_tokens'
-        });
     } catch (e) {
-        console.error("Telemetry reconciliation failed:", e);
+        console.warn('Usage refresh event skipped:', e);
     }
 };
 
@@ -234,6 +174,7 @@ export const syncUserUsage = async (userId: string, plan: string) => {
 export const releaseLimit = async (userId: string, featureKey: FeatureKey, amount: number = 1) => {
     try {
         await callUsageApi('/api/usage/release', { featureKey, amount });
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('goatify:usage-updated', { detail: { featureKey, amount, released: true } }));
     } catch (e) {
         console.error('Failed to release limit:', e);
     }
@@ -330,6 +271,7 @@ export const checkAndConsumeLimit = async (userId: string, featureKey: FeatureKe
             amount,
             metadata: { module: 'frontend', forcedPlanKey: forcedPlanKey || null }
         });
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('goatify:usage-updated', { detail: { featureKey, amount } }));
         return false;
     } catch (e: any) {
         if (e.code === 'PLAN_LIMIT_REACHED') throw e;

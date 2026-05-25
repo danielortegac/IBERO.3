@@ -1,7 +1,8 @@
-import React, { useContext, useMemo } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { AppContext } from '../context/AppContext';
 import { getPlanConfig } from '../types';
 import Icon from './Icon';
+import { auth } from '../firebaseConfig';
 
 const formatLimit = (value: number) => value >= 999999 ? '∞' : String(value);
 const formatStorage = (bytes: number) => {
@@ -21,11 +22,39 @@ type PlanCreditBadgeProps = {
 
 const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, className = '', showStorage = true }) => {
   const { userProfile, userUsage, setProModalOpen } = useContext(AppContext);
+  const [liveUsage, setLiveUsage] = useState<any | null>(null);
   const planConfig = getPlanConfig(userProfile.plan);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshUsage = async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        const res = await fetch('/api/usage/current', { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && data?.usage) setLiveUsage(data.usage);
+      } catch (e) {
+        // Firestore listener sigue siendo la fuente principal; este fetch solo evita badges congelados en 0.
+      }
+    };
+    refreshUsage();
+    const onRefresh = () => refreshUsage();
+    window.addEventListener('focus', onRefresh);
+    window.addEventListener('goatify:usage-updated', onRefresh as EventListener);
+    const interval = window.setInterval(refreshUsage, 20000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onRefresh);
+      window.removeEventListener('goatify:usage-updated', onRefresh as EventListener);
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const metrics = useMemo(() => {
     const limits = planConfig.limits as any;
-    const counters = userUsage?.counters || {} as any;
+    const effectiveUsage = liveUsage || userUsage;
+    const counters = effectiveUsage?.counters || {} as any;
     const storageLimitGb = limits.storage_gb || 0;
     const storageUsedBytes = counters.current_storage_bytes || 0;
     const storageLimitBytes = storageLimitGb * 1024 * 1024 * 1024;
@@ -46,7 +75,7 @@ const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, clas
       storageLabel: `${formatStorage(storageUsedBytes)} / ${storageLimitGb >= 999999 ? '∞' : `${storageLimitGb} GB`}`,
       storagePercent: storageLimitBytes > 0 ? Math.min(100, Math.round((storageUsedBytes / storageLimitBytes) * 100)) : 0
     };
-  }, [planConfig, userUsage]);
+  }, [planConfig, userUsage, liveUsage]);
 
   const planLabel = userProfile.plan === 'premium' ? 'Premium' : userProfile.plan === 'pro' ? 'Pro' : 'Free';
   const isPremiumActive = userProfile.plan === 'premium' && userProfile.subscriptionStatus === 'active';

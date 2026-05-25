@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import { createServer as createViteServer } from "vite";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import { simpleParser } from "mailparser";
@@ -303,7 +302,7 @@ async function startServer() {
 
   // --- Reminder Worker: posts sociales y reuniones próximas ---
   // Genera notificaciones internas; el Push Guard global las entrega al celular/escritorio si existe suscripción.
-  const reminderWorkerEnabled = process.env.ENABLE_REMINDER_WORKER !== "false";
+  const reminderWorkerEnabled = process.env.ENABLE_REMINDER_WORKER === "true";
   const reminderWorkerIntervalMs = Number(process.env.REMINDER_WORKER_INTERVAL_MS || 60000);
   const reminderLookaheadMinutes = Number(process.env.REMINDER_LOOKAHEAD_MINUTES || 90);
 
@@ -858,7 +857,7 @@ async function startServer() {
 
   app.get("/api/version", (req: any, res: any) => {
     res.json({
-      buildId: "goatify-v16-3-credits-usage-sync-fix",
+      buildId: "goatify-cloudrun-secure-v1",
       timestamp: new Date().toISOString(),
       mode: "backend-only"
     });
@@ -1096,6 +1095,69 @@ async function startServer() {
     return 1;
   }
 
+  function extractUsageTokens(usageMetadata: any = {}) {
+    const tokensIn = Number(usageMetadata.promptTokenCount || usageMetadata.inputTokenCount || usageMetadata.prompt_tokens || 0);
+    const tokensOut = Number(usageMetadata.candidatesTokenCount || usageMetadata.outputTokenCount || usageMetadata.completion_tokens || 0);
+    const totalTokens = Number(usageMetadata.totalTokenCount || tokensIn + tokensOut || 0);
+    return { tokensIn, tokensOut, totalTokens };
+  }
+
+  function estimateAiCostUsd(model: string = 'default', usageMetadata: any = {}, fallbackCost = 0) {
+    const { tokensIn, tokensOut } = extractUsageTokens(usageMetadata);
+    const m = String(model || '').toLowerCase();
+    let inRate = 0.15;
+    let outRate = 0.60;
+    if (m.includes('pro')) { inRate = 1.25; outRate = 10.00; }
+    else if (m.includes('lite')) { inRate = 0.075; outRate = 0.30; }
+    else if (m.includes('sonar') || m.includes('perplexity')) { inRate = 1.00; outRate = 1.00; }
+    const cost = ((tokensIn / 1_000_000) * inRate) + ((tokensOut / 1_000_000) * outRate);
+    return Number((cost > 0 ? cost : fallbackCost).toFixed(8));
+  }
+
+  async function recordServerUsageTelemetry(uid: string, payload: { module?: string; model?: string; usageMetadata?: any; requestId?: string; isPerplexity?: boolean; fallbackCost?: number; action?: string }) {
+    if (!uid) return;
+    const nowIso = new Date().toISOString();
+    const { tokensIn, tokensOut } = extractUsageTokens(payload.usageMetadata || {});
+    const totalCost = estimateAiCostUsd(payload.model || 'default', payload.usageMetadata || {}, payload.fallbackCost || 0);
+    if (tokensIn <= 0 && tokensOut <= 0 && totalCost <= 0) return;
+
+    const usageRef = firestore.collection('user_usage').doc(uid);
+    const idemRef = payload.requestId ? firestore.collection('users').doc(uid).collection('usage_idempotency').doc(`server_${payload.requestId}`) : null;
+    const logRef = firestore.collection('users').doc(uid).collection('usage_logs').doc();
+    const globalRef = firestore.collection('stats').doc('global_metrics');
+
+    try {
+      await firestore.runTransaction(async (tx) => {
+        if (idemRef) {
+          const idemSnap = await tx.get(idemRef);
+          if (idemSnap.exists) return;
+          tx.set(idemRef, { processedAt: nowIso, totalCost, source: 'server_telemetry' });
+        }
+        tx.set(usageRef, {
+          tokens_in: admin.firestore.FieldValue.increment(tokensIn),
+          tokens_out: admin.firestore.FieldValue.increment(tokensOut),
+          total_cost_usd: admin.firestore.FieldValue.increment(totalCost),
+          counters: { last_activity: nowIso }
+        }, { merge: true });
+        tx.set(logRef, {
+          module: payload.module || 'backend',
+          model: payload.model || 'unknown',
+          cost_usd: totalCost,
+          tokens_in: tokensIn,
+          tokens_out: tokensOut,
+          requestId: payload.requestId || 'none',
+          createdAt: nowIso,
+          type: payload.isPerplexity ? 'perplexity_search' : (payload.action || 'gemini_tokens')
+        });
+        tx.set(globalRef, {
+          [payload.isPerplexity ? 'perplexity_calls' : 'gemini_calls']: admin.firestore.FieldValue.increment(1)
+        }, { merge: true });
+      });
+    } catch (e) {
+      console.warn('[USAGE TELEMETRY] No se pudo actualizar tokens/costo:', e);
+    }
+  }
+
   async function consumeFeatureOrReject(req: any, featureKey: ServerFeatureKey, amount: number = 1, metadata: any = {}) {
     const uid = req.user?.uid;
     if (!uid) {
@@ -1271,6 +1333,42 @@ async function startServer() {
   });
 
 
+  app.get('/api/usage/current', requireFirebaseUser, async (req: any, res: any) => {
+    try {
+      const uid = req.user.uid;
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const nextMonth = new Date(now);
+      nextMonth.setMonth(now.getMonth() + 1);
+      const userSnap = await firestore.collection('users').doc(uid).get();
+      const userData: any = userSnap.exists ? (userSnap.data() || {}) : {};
+      let plan = String(userData.plan || 'free').toLowerCase();
+      if (String(userData.subscriptionStatus || 'active').toLowerCase() === 'canceled') plan = 'free';
+      if (!SERVER_PLAN_LIMITS[plan]) plan = 'free';
+      const usageRef = firestore.collection('user_usage').doc(uid);
+      const usageSnap = await usageRef.get();
+      if (!usageSnap.exists) {
+        const defaultUsage = {
+          user_id: uid,
+          plan_id: plan,
+          total_cost_usd: 0,
+          tokens_in: 0,
+          tokens_out: 0,
+          billing_cycle_start: nowIso,
+          billing_cycle_end: nextMonth.toISOString(),
+          counters: serverDefaultCounters(nowIso)
+        };
+        await usageRef.set(defaultUsage, { merge: true });
+        return res.json({ ok: true, usage: defaultUsage });
+      }
+      const usage = usageSnap.data() || {};
+      return res.json({ ok: true, usage: { ...usage, plan_id: plan, counters: { ...serverDefaultCounters(nowIso), ...(usage.counters || {}) } } });
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, error: e?.message || 'No se pudo leer uso actual.' });
+    }
+  });
+
+
   async function recalculateUsageForUid(uid: string) {
     const nowIso = new Date().toISOString();
     const projectsSnap = await firestore.collection('projects').where('ownerId', '==', uid).get();
@@ -1314,100 +1412,19 @@ async function startServer() {
 
   app.post('/api/usage/sync', requireFirebaseUser, async (req: any, res: any) => {
     const uid = req.user.uid;
-    const usageRef = firestore.collection('user_usage').doc(uid);
-    const userRef = firestore.collection('users').doc(uid);
-
-    try {
-      let responsePayload: any = null;
-      await firestore.runTransaction(async (tx) => {
-        const [usageSnap, userSnap] = await Promise.all([tx.get(usageRef), tx.get(userRef)]);
-        const now = new Date();
-        const nowIso = now.toISOString();
-        const today = nowIso.split('T')[0];
-        const nextMonth = new Date(now);
-        nextMonth.setMonth(now.getMonth() + 1);
-
-        const userData: any = userSnap.exists ? (userSnap.data() || {}) : {};
-        let realPlan = String(userData.plan || req.body?.plan || 'free').toLowerCase();
-        const subscriptionStatus = String(userData.subscriptionStatus || 'active').toLowerCase();
-        if (subscriptionStatus === 'canceled' && realPlan !== 'free') realPlan = 'free';
-        if (!SERVER_PLAN_LIMITS[realPlan]) realPlan = 'free';
-
-        const defaults = serverDefaultCounters(nowIso);
-        const existing: any = usageSnap.exists ? (usageSnap.data() || {}) : {};
-        const existingCounters: any = existing.counters || {};
-        const counters: any = { ...defaults, ...existingCounters };
-        const updates: any = {
-          user_id: uid,
-          plan_id: realPlan,
-          counters: {}
-        };
-
-        // Importante: sync NO debe resetear contadores cada vez que cambia el perfil.
-        // Solo crea el documento si no existe, rellena llaves faltantes y resetea por ciclo real.
-        if (!usageSnap.exists) {
-          updates.total_cost_usd = 0;
-          updates.tokens_in = 0;
-          updates.tokens_out = 0;
-          updates.billing_cycle_start = nowIso;
-          updates.billing_cycle_end = nextMonth.toISOString();
-          updates.counters = { ...defaults };
-        } else {
-          for (const [key, value] of Object.entries(defaults)) {
-            if (typeof existingCounters[key] === 'undefined') {
-              updates[`counters.${key}`] = value;
-            }
-          }
-        }
-
-        const lastDailyRaw = counters.last_daily_reset ? new Date(counters.last_daily_reset) : new Date(0);
-        const lastDailyDay = lastDailyRaw.toISOString().split('T')[0];
-        if (today !== lastDailyDay) {
-          for (const key of SERVER_DAILY_USAGE_KEYS) {
-            updates[`counters.${key}`] = 0;
-            counters[key] = 0;
-          }
-          updates['counters.last_daily_reset'] = nowIso;
-          counters.last_daily_reset = nowIso;
-        }
-
-        const billingEnd = existing.billing_cycle_end ? new Date(existing.billing_cycle_end) : nextMonth;
-        if (!usageSnap.exists || now >= billingEnd) {
-          for (const key of SERVER_MONTHLY_USAGE_KEYS) {
-            updates[`counters.${key}`] = 0;
-            counters[key] = 0;
-          }
-          updates.billing_cycle_start = nowIso;
-          updates.billing_cycle_end = nextMonth.toISOString();
-          updates.total_cost_usd = 0;
-          updates.tokens_in = 0;
-          updates.tokens_out = 0;
-        }
-
-        updates['counters.last_activity'] = nowIso;
-        counters.last_activity = nowIso;
-
-        tx.set(usageRef, updates, { merge: true });
-        responsePayload = {
-          ok: true,
-          usage: {
-            user_id: uid,
-            plan_id: realPlan,
-            total_cost_usd: updates.total_cost_usd ?? existing.total_cost_usd ?? 0,
-            tokens_in: updates.tokens_in ?? existing.tokens_in ?? 0,
-            tokens_out: updates.tokens_out ?? existing.tokens_out ?? 0,
-            billing_cycle_start: updates.billing_cycle_start ?? existing.billing_cycle_start ?? nowIso,
-            billing_cycle_end: updates.billing_cycle_end ?? existing.billing_cycle_end ?? nextMonth.toISOString(),
-            counters
-          }
-        };
-      });
-
-      return res.json(responsePayload || { ok: true });
-    } catch (e: any) {
-      console.error('[USAGE SYNC ERROR]', e);
-      return res.status(500).json({ ok: false, error: e?.message || 'No se pudo sincronizar el uso.' });
-    }
+    const userSnap = await firestore.collection('users').doc(uid).get();
+    const userPlan = String((userSnap.data() || {}).plan || req.body?.plan || 'free').toLowerCase();
+    const now = new Date();
+    const nextMonth = new Date(now);
+    nextMonth.setMonth(now.getMonth() + 1);
+    await firestore.collection('user_usage').doc(uid).set({
+      user_id: uid,
+      plan_id: SERVER_PLAN_LIMITS[userPlan] ? userPlan : 'free',
+      billing_cycle_start: now.toISOString(),
+      billing_cycle_end: nextMonth.toISOString(),
+      counters: { ...serverDefaultCounters(now.toISOString()) }
+    }, { merge: true });
+    return res.json({ ok: true });
   });
 
   app.post('/api/usage/recalculate', requireFirebaseUser, async (req: any, res: any) => {
@@ -1664,6 +1681,7 @@ async function startServer() {
       }
 
       const data = await response.json();
+      await recordServerUsageTelemetry(req.user.uid, { module: 'search', model: 'perplexity-sonar', usageMetadata: data.usage || {}, isPerplexity: true, fallbackCost: 0.005, action: 'perplexity_search' });
       res.json({
         text: data.choices[0].message.content,
         citations: data.citations || []
@@ -3976,7 +3994,7 @@ async function startServer() {
 
   // --- AI PROXY FOR PUBLIC AGENTS & UNIVERSAL FRONTEND ---
   app.post("/api/gemini/chat", requireFirebaseUser, async (req: any, res: any) => {
-    const { history, systemInstruction, model, config, module: reqModule } = req.body;
+    const { history, systemInstruction, model, config, module: reqModule, requestId } = req.body;
     const { key: apiKey, source } = getValidGeminiApiKey();
     const creditAmount = serverModuleChatCost(reqModule);
     let creditConsumed = false;
@@ -4006,6 +4024,7 @@ async function startServer() {
         }
       });
 
+      await recordServerUsageTelemetry(req.user.uid, { module: reqModule || 'chat', model: targetModel, usageMetadata: result.usageMetadata, requestId, action: 'gemini_chat' });
       res.json({
         text: result.text,
         parts: result.candidates?.[0]?.content?.parts,
@@ -4025,7 +4044,7 @@ async function startServer() {
 
   // TTS Endpoint
   app.post("/api/gemini/tts", requireFirebaseUser, async (req: any, res: any) => {
-    const { text, voice } = req.body;
+    const { text, voice, requestId } = req.body;
     const { key: apiKey } = getValidGeminiApiKey();
     let creditConsumed = false;
     if (!apiKey) return res.status(500).json({ error: "No API Key" });
@@ -4044,6 +4063,7 @@ async function startServer() {
       });
       const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (!audioData) throw new Error("TTS failed to generate audio data");
+      await recordServerUsageTelemetry(req.user.uid, { module: 'voice', model: 'gemini-3.1-flash-tts-preview', usageMetadata: response.usageMetadata, requestId, fallbackCost: 0.002, action: 'tts' });
       res.json({ audioData, mimeType: "audio/pcm;rate=24000" });
     } catch (e: any) {
       if (e?.status === 402) return sendLimitError(res, e);
@@ -4055,7 +4075,7 @@ async function startServer() {
 
   app.post("/api/debug/tts", requireFirebaseUser, async (req: any, res: any) => {
     if (isProduction && process.env.EXPOSE_DEBUG_TTS !== "true") return res.status(404).send();
-    const { text, voice } = req.body;
+    const { text, voice, requestId } = req.body;
     const { key: apiKey } = getValidGeminiApiKey();
     if (!apiKey) return res.status(500).json({ error: "No API Key" });
 
@@ -4080,7 +4100,7 @@ async function startServer() {
 
   // Images Endpoint (Imagen)
   app.post("/api/gemini/images", requireFirebaseUser, async (req: any, res: any) => {
-    const { prompt, aspectRatio } = req.body;
+    const { prompt, aspectRatio, requestId } = req.body;
     const { key: apiKey } = getValidGeminiApiKey();
     let creditConsumed = false;
 
@@ -4139,7 +4159,7 @@ async function startServer() {
 
   // Alias para retrocompatibilidad parcial o casos específicos
   app.post("/api/ai/chat", requireFirebaseUser, async (req: any, res: any) => {
-    const { history, systemInstruction, model, config, module: reqModule } = req.body;
+    const { history, systemInstruction, model, config, module: reqModule, requestId } = req.body;
     const { key: apiKey } = getValidGeminiApiKey();
     const creditAmount = serverModuleChatCost(reqModule);
     let creditConsumed = false;
@@ -4164,6 +4184,7 @@ async function startServer() {
         }
       });
 
+      await recordServerUsageTelemetry(req.user.uid, { module: reqModule || 'chat', model: modelToUse, usageMetadata: result.usageMetadata, requestId, action: 'ai_chat_alias' });
       res.json({
         candidates: [{ content: { parts: [{ text: result.text }] } }],
         usageMetadata: result.usageMetadata
@@ -4178,7 +4199,7 @@ async function startServer() {
   // Endpoint para Streaming (Simulado o real vía SSE)
   app.post("/api/gemini/stream", requireFirebaseUser, async (req: any, res: any) => {
     const startTime = Date.now();
-    const { history, systemInstruction, model, config, module: reqModule } = req.body;
+    const { history, systemInstruction, model, config, module: reqModule, requestId } = req.body;
     const { key: apiKey } = getValidGeminiApiKey();
     const creditAmount = serverModuleChatCost(reqModule);
     let creditConsumed = false;
@@ -4221,6 +4242,7 @@ async function startServer() {
       });
 
       let firstToken = true;
+      let lastUsageMetadata: any = null;
       for await (const chunk of stream) {
         if (firstToken) {
           const firstTokenTime = Date.now() - startTime;
@@ -4228,12 +4250,14 @@ async function startServer() {
           firstToken = false;
         }
 
+        if (chunk.usageMetadata) lastUsageMetadata = chunk.usageMetadata;
         if (chunk.text) {
           // Envío inmediato sin acumulación
           res.write(`data: ${JSON.stringify({ text: chunk.text, usage: chunk.usageMetadata })}\n\n`);
         }
       }
       
+      await recordServerUsageTelemetry(req.user.uid, { module: reqModule || 'chat', model: targetModel, usageMetadata: lastUsageMetadata, requestId, action: 'gemini_stream' });
       console.log(`[STREAM LATENCY] Fin de flujo en ${Date.now() - startTime}ms`);
       res.write('data: [DONE]\n\n');
       res.end();
@@ -4246,7 +4270,7 @@ async function startServer() {
 
   // Endpoint para Multimedia (Imagen, Video, Audio)
   app.post("/api/gemini/media", requireFirebaseUser, async (req: any, res: any) => {
-    const { prompt, type, fileData, config } = req.body;
+    const { prompt, type, fileData, config, requestId } = req.body;
     
     if (type === 'image-gen') {
       return res.status(400).json({ error: "Para generar imágenes usa el endpoint /api/gemini/images" });
@@ -4283,6 +4307,7 @@ async function startServer() {
         config: { ...(config || {}), maxOutputTokens: tokenCapForPlan(aiPolicy.plan, aiPolicy.paidPremium, "media", config?.maxOutputTokens || 4096) }
       });
 
+      await recordServerUsageTelemetry(req.user.uid, { module: 'media', model: modelToUse, usageMetadata: result.usageMetadata, requestId, action: 'gemini_media' });
       res.json({ text: result.text, result });
     } catch (e: any) {
       if (e?.status === 402) return sendLimitError(res, e);
@@ -4539,8 +4564,10 @@ async function startServer() {
     });
   });
 
-  // Vite middleware para desarrollo
+  // Vite middleware solo para desarrollo.
+  // IMPORTANTE: no importar vite en producción, porque Docker instala solo dependencies.
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

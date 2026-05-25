@@ -75,9 +75,7 @@ const WebProgrammer: React.FC<WebProgrammerProps> = ({ isModuleFullScreen = fals
 
     const handleAddPage = () => {
         if (newPageName.trim()) {
-            const normalizedName = newPageName.trim().endsWith('.html') ? newPageName.trim() : `${newPageName.trim()}.html`;
-            addNewFile(normalizedName);
-            setPrompt(`Diseña la página interna ${normalizedName} con contenido propio, profundo y diferente al index. Usa el mismo estilo premium del proyecto, navegación hacia todas las páginas existentes, secciones específicas, CTA, responsive perfecto y textos reales. No clones la portada ni repitas las mismas tarjetas.`);
+            addNewFile(newPageName.trim());
             setIsAddPageModalOpen(false);
             setNewPageName('nueva-pagina.html');
         }
@@ -175,7 +173,7 @@ const WebProgrammer: React.FC<WebProgrammerProps> = ({ isModuleFullScreen = fals
             
             const filePromises = Object.keys(zip.files).map(async (filename) => {
                 const file = zip.files[filename];
-                if (!file.dir && (filename.endsWith('.html') || filename.endsWith('.htm') || filename.endsWith('.css') || filename.endsWith('.js') || filename.endsWith('.json') || filename.endsWith('.txt'))) {
+                if (!file.dir && (filename.endsWith('.html') || filename.endsWith('.htm'))) {
                     const content = await file.async('string');
                     const name = filename.split('/').pop() || filename;
                     filesToAdd.push({
@@ -553,23 +551,21 @@ const WebProgrammer: React.FC<WebProgrammerProps> = ({ isModuleFullScreen = fals
     
     const handleDownloadZip = async () => {
         if (!activeSession || !activeSession.files) return;
-        setToastNotification({ title: "Preparando ZIP...", message: "Empaquetando tu proyecto multi-página listo para GitHub/Netlify.", icon: "box", isLoading: true });
+        setToastNotification({ title: "Preparando ZIP...", message: "Empaquetando tu proyecto multi-página.", icon: "box", isLoading: true });
         try {
             const zip = new JSZip();
-            const cleanName = slugify(activeSession.name || 'goatify-project') || 'goatify-project';
-            const htmlFiles = getHtmlFiles(activeSession.files);
-            const hasIndex = activeSession.files.some(f => (f.name || '').toLowerCase() === 'index.html');
+            const cleanName = activeSession.name.replace(/\s+/g, '_');
             
             activeSession.files.forEach(f => {
-                let code = f.code || '';
-                if (/\.html?$/i.test(f.name || '') && code && !code.includes('Goatify IA') && !code.includes('ia.goatify.app')) {
+                let code = f.code;
+                // Enforce branding if missing
+                if (!code.includes('Goatify IA')) {
                     const footer = `
     <footer class="mt-12 py-8 border-t border-gray-100 text-center font-sans text-gray-400 text-sm">
         <p>&copy; 2026 - Desarrollado en <a href="https://ia.goatify.app" target="_blank" class="text-purple-600 font-bold hover:underline">Goatify IA</a></p>
     </footer>`;
                     if (code.includes('</body>')) {
-                        code = code.replace('</body>', `${footer}
-</body>`);
+                        code = code.replace('</body>', `${footer}\n</body>`);
                     } else {
                         code += footer;
                     }
@@ -577,21 +573,7 @@ const WebProgrammer: React.FC<WebProgrammerProps> = ({ isModuleFullScreen = fals
                 zip.file(f.name, code);
             });
 
-            if (!hasIndex && htmlFiles.length > 0) {
-                zip.file('index.html', createProjectIndexHtml(activeSession));
-            }
-
-            zip.file('site-map.json', JSON.stringify({
-                project: activeSession.name,
-                mainFile: getMainHtmlFileName(activeSession.files),
-                pages: htmlFiles.map(f => f.name),
-                generatedBy: 'Goatify IA Web Programmer',
-                generatedAt: new Date().toISOString()
-            }, null, 2));
-
-            const readmeFiles = activeSession.files.map(f => `- ${f.name}`).join('\n');
-            const generatedIndexNote = !hasIndex && htmlFiles.length > 0 ? '- index.html (índice generado automáticamente para despliegue estático)' : '';
-            zip.file("README.md", `# ${activeSession.name}\n\nProyecto generado con Goatify IA.\n\n## Estructura\n\n${readmeFiles}\n${generatedIndexNote}\n- assets/ (carpeta para imágenes y recursos)\n\n## Cómo subirlo rápido\n\n1. Descomprime este ZIP.\n2. Sube todos los archivos a un repositorio privado o público de GitHub.\n3. Para Netlify/Vercel/GitHub Pages, usa la raíz del proyecto como carpeta pública.\n4. Asegúrate de que exista index.html en la raíz. Goatify lo genera automáticamente si tu proyecto no lo tenía.\n\nGenerado por https://ia.goatify.app\n`);
+            zip.file("readme.txt", `Proyecto: ${activeSession.name}\nTipo: ${activeSession.type === 'web' ? 'Sitio Web' : 'PWA App'}\nGenerado por Goatify IA\n\nEstructura:\n${activeSession.files.map(f => `- ${f.name}`).join('\n')}\n- assets/: Carpeta para tus imágenes`);
             const assets = zip.folder("assets");
             assets?.file(".keep", "");
             
@@ -599,12 +581,12 @@ const WebProgrammer: React.FC<WebProgrammerProps> = ({ isModuleFullScreen = fals
             const url = URL.createObjectURL(content);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${cleanName}_github_ready.zip`;
+            a.download = `${cleanName}_Project.zip`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            setToastNotification({ title: "ZIP listo", message: "Tu proyecto quedó empaquetado para GitHub, Netlify o hosting estático.", icon: "check" });
+            setToastNotification({ title: "Descarga Lista", message: "Tu proyecto multi-página se ha descargado como ZIP.", icon: "check" });
         } catch (error) {
             console.error("ZIP Error", error);
             setToastNotification({ title: "Error", message: "No se pudo crear el ZIP.", icon: "close" });
@@ -636,42 +618,6 @@ const WebProgrammer: React.FC<WebProgrammerProps> = ({ isModuleFullScreen = fals
             .replace(/\s+/g, '-')
             .replace(/[^\w-]+/g, '')
             .replace(/--+/g, '-');
-    };
-
-
-
-    const getHtmlFiles = (files: WebFile[] = []) => files.filter(f => /\.html?$/i.test(f.name || ''));
-    const getMainHtmlFileName = (files: WebFile[] = []) => {
-        const htmlFiles = getHtmlFiles(files);
-        return htmlFiles.find(f => f.name.toLowerCase() === 'index.html')?.name || htmlFiles[0]?.name || files[0]?.name || 'index.html';
-    };
-
-    const createProjectIndexHtml = (session: WebDevSession) => {
-        const htmlFiles = getHtmlFiles(session.files || []);
-        const year = new Date().getFullYear();
-        const nav = htmlFiles.map(f => {
-            const title = f.name.replace(/\.html?$/i, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).replace(/^Index$/i, 'Inicio');
-            return `<a href="${f.name}">${title}</a>`;
-        }).join('');
-        return `<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>${session.name || 'Sitio Goatify'}</title>
-<style>
-body{margin:0;font-family:Inter,system-ui,sans-serif;background:#070711;color:#fff;min-height:100vh;display:grid;place-items:center;padding:32px}main{max-width:980px;width:100%;background:linear-gradient(135deg,rgba(124,58,237,.22),rgba(37,99,235,.16));border:1px solid rgba(255,255,255,.14);border-radius:34px;padding:42px;box-shadow:0 30px 90px rgba(0,0,0,.35)}h1{font-size:clamp(2rem,6vw,4.2rem);line-height:.95;margin:0 0 16px;font-weight:950;letter-spacing:-.06em}p{color:#cbd5e1;font-size:1.05rem;line-height:1.7}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:28px}a{display:block;text-decoration:none;color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:16px 18px;font-weight:900;transition:.2s}a:hover{transform:translateY(-2px);background:linear-gradient(135deg,#7c3aed,#2563eb)}small{display:block;margin-top:26px;color:#94a3b8;font-weight:800}
-</style>
-</head>
-<body>
-<main>
-<h1>${session.name || 'Sitio publicado'}</h1>
-<p>Este proyecto fue generado en Goatify IA y contiene varias páginas listas para publicarse o subirse a GitHub/Netlify.</p>
-<div class="grid">${nav}</div>
-<small>© ${year} · Sitio desarrollado en ia.goatify.app</small>
-</main>
-</body>
-</html>`;
     };
 
     const getCurrentPublishedSiteCount = async () => {
@@ -730,32 +676,37 @@ body{margin:0;font-family:Inter,system-ui,sans-serif;background:#070711;color:#f
             }
 
             const nowIso = new Date().toISOString();
-            await setDoc(doc(db, 'published_sites', finalId), {
-                ownerId: currentUser.uid, 
-                brandName: brandName.trim(), 
-                type: activeSession.type || 'web',
-                mainFile: getMainHtmlFileName(activeSession.files),
-                htmlCode: activeSession.files.find(f => f.name === getMainHtmlFileName(activeSession.files))?.code || activeSession.files[0]?.code || '',
-                files: activeSession.files.map(f => {
-                    let code = f.code;
-                    // Enforce branding only for HTML files. Never append HTML footer into CSS/JS assets.
-                    if (/\.html?$/i.test(f.name || '') && !code.includes('Goatify IA') && !code.includes('ia.goatify.app')) {
-                        const footer = `
+            const preparedFiles = activeSession.files.map(f => {
+                let code = f.code || '';
+                // Enforce branding if missing
+                if (code && !code.includes('Goatify IA')) {
+                    const footer = `
     <footer class="mt-12 py-8 border-t border-gray-100 text-center font-sans text-gray-400 text-sm">
         <p>&copy; 2026 - Desarrollado en <a href="https://ia.goatify.app" target="_blank" class="text-purple-600 font-bold hover:underline">Goatify IA</a></p>
     </footer>`;
-                        if (code.includes('</body>')) {
-                            code = code.replace('</body>', `${footer}\n</body>`);
-                        } else {
-                            code += footer;
-                        }
+                    if (code.includes('</body>')) {
+                        code = code.replace('</body>', `${footer}
+</body>`);
+                    } else {
+                        code += footer;
                     }
-                    return { name: f.name, code };
-                }),
+                }
+                return { name: f.name, code };
+            });
+            const homeFile = preparedFiles.find(f => /^index\.html?$/i.test(f.name)) || preparedFiles.find(f => (f.code || '').trim().length > 0) || preparedFiles[0];
+            await setDoc(doc(db, 'published_sites', finalId), {
+                ownerId: currentUser.uid,
+                brandName: brandName.trim(),
+                type: activeSession.type || 'web',
+                files: preparedFiles,
+                htmlCode: homeFile?.code || '<!doctype html><html><body><h1>Sitio publicado sin contenido</h1></body></html>',
+                homeFileName: homeFile?.name || 'index.html',
+                pages: preparedFiles.map(f => f.name),
                 createdAt: existingCreatedAt || nowIso,
                 updatedAt: nowIso,
                 active: true
             }, { merge: true });
+
 
             const finalCount = isUpdatingOwnSite ? publishedSiteCount : publishedSiteCount + 1;
             await syncPublishedSiteCounter(finalCount);
@@ -1507,9 +1458,6 @@ body{margin:0;font-family:Inter,system-ui,sans-serif;background:#070711;color:#f
                                 {/* STYLING SUGGESTIONS */}
                                 <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-hide mb-1">
                                     {[
-                                        { label: 'Sitio completo pro', prompt: 'Crea un sitio completo premium, largo, responsivo y listo para cliente: hero potente, beneficios, servicios, proceso, prueba social, CTA, FAQ, footer, navegación clara y copy estratégico. Si hay varias páginas, crea enlaces reales entre ellas.' },
-                                        { label: 'Mejorar diseño', prompt: 'Sube este diseño a nivel agencia premium 2026: mejor jerarquía visual, spacing, responsive, microinteracciones, tarjetas, contraste, copy, CTA y estructura. No borres lo que funciona.' },
-                                        { label: 'Página interna', prompt: 'Convierte esta página en una página interna real con contenido propio, diferente al inicio, navegación a todas las páginas, secciones profundas, CTA y diseño coherente con el sitio.' },
                                         { label: 'Modo Oscuro', prompt: 'Aplica un tema oscuro elegante (dark mode) con contrastes suaves.' },
                                         { label: 'Minimalista', prompt: 'Haz el diseño extremadamente minimalista, con mucho espacio en blanco y tipografía limpia.' },
                                         { label: 'Animaciones', prompt: 'Añade animaciones sutiles de entrada (fade-in, slide-up) a los elementos principales.' },

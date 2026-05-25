@@ -66,7 +66,12 @@ const PLATFORM_URLS: Record<string, string> = {
 
 const NETWORKS = ['Instagram', 'Facebook', 'TikTok', 'LinkedIn', 'X', 'YouTube'];
 const TODAY = new Date();
-const isoDate = (date: Date) => date.toISOString().slice(0, 10);
+const isoDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
 const platformFormats: Record<string, { label: string; aspect: string; publishLabel: string; color: string }> = {
     Instagram: { label: 'Feed/Reel · 1080x1350 o 9:16', aspect: '4:5', publishLabel: 'Meta Business Suite', color: 'from-pink-500 to-purple-600' },
@@ -584,6 +589,77 @@ const SocialMediaManager: React.FC = () => {
         setToastNotification({ title: 'Calendarizado', message: 'El post quedó en el Calendario de Contenidos y en la memoria social.', icon: 'calendar' });
     };
 
+    const moveScheduledPost = async (campaignId: string, postId: string, newDate: string) => {
+        const campaign = campaigns.find(c => c.id === campaignId);
+        if (!campaign) return;
+        const targetPost = campaign.posts.find(p => p.id === postId) as PostWithMedia | undefined;
+        if (!targetPost) return;
+        const previousTime = targetPost.scheduledAt ? String(targetPost.scheduledAt).slice(11, 16) : '19:00';
+        const scheduledAt = `${newDate}T${previousTime || '19:00'}:00`;
+        const reminder = Number(targetPost.reminderMinutes || 30);
+        const reminderAt = new Date(new Date(scheduledAt).getTime() - (reminder * 60 * 1000)).toISOString();
+        const updatedPost: PostWithMedia = { ...targetPost, scheduledAt, reminderMinutes: reminder, status: 'scheduled' };
+        const previousPosts = campaign.posts;
+        const posts = campaign.posts.map(p => p.id === postId ? updatedPost : p);
+        try {
+            await updateCampaign(campaignId, { posts, status: 'scheduled' });
+            if (currentCampaignId === campaignId) {
+                setResults(prev => prev.map(p => p.id === postId ? { ...p, ...updatedPost } : p));
+            }
+            if (uid && uid !== 'local-user') {
+                const itemId = `${campaignId}_${postId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+                await setDoc(doc(db, 'users', uid, 'socialCalendar', itemId), {
+                    id: itemId,
+                    eventType: 'social_post',
+                    campaignId,
+                    campaignName: campaign.name,
+                    postId,
+                    ownerId: uid,
+                    brandId: updatedPost.brandId || (campaign as any).brandId || selectedBrand?.id || brandDraft.id,
+                    brandName: updatedPost.brandName || (campaign as any).brandName || selectedBrand?.name || brandDraft.name,
+                    platform: updatedPost.platform,
+                    title: `${updatedPost.platform}: ${campaign.name || 'Contenido'}`,
+                    scheduledAt,
+                    reminderAt,
+                    reminderMinutes: reminder,
+                    status: 'scheduled',
+                    copy: updatedPost.content || '',
+                    hashtags: normalizeHashtags(updatedPost.hashtags),
+                    imagePrompt: updatedPost.photoPrompt || updatedPost.imagePrompt || '',
+                    videoPrompt: updatedPost.videoScript || updatedPost.videoBrief || updatedPost.videoPrompt || '',
+                    publishUrl: getPublishUrl(updatedPost),
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+            }
+            setSelectedCalendarDate(newDate);
+            setToastNotification({ title: 'Post movido', message: `Nueva fecha: ${newDate}. La hora se conservó.`, icon: 'calendar' });
+        } catch (error) {
+            console.error(error);
+            await updateCampaign(campaignId, { posts: previousPosts });
+            setToastNotification({ title: 'No se pudo mover', message: 'Se restauró la fecha anterior del post.', icon: 'close' });
+        }
+    };
+
+    const handleSocialDragStart = (e: React.DragEvent<HTMLDivElement>, campaignId: string, postId?: string) => {
+        if (!postId) return;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('socialCampaignId', campaignId);
+        e.dataTransfer.setData('socialPostId', postId);
+    };
+
+    const handleSocialDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleSocialDrop = async (e: React.DragEvent<HTMLDivElement>, newDate: string) => {
+        e.preventDefault();
+        const campaignId = e.dataTransfer.getData('socialCampaignId');
+        const postId = e.dataTransfer.getData('socialPostId');
+        if (!campaignId || !postId) return;
+        await moveScheduledPost(campaignId, postId, newDate);
+    };
+
     const markPublished = async (campaignId: string, post: SocialPost) => {
         const campaign = campaigns.find(c => c.id === campaignId);
         if (!campaign) return;
@@ -816,13 +892,13 @@ const SocialMediaManager: React.FC = () => {
                         const isCurrent = date.getMonth() === calendarMonth.getMonth();
                         const isToday = date.toDateString() === new Date().toDateString();
                         return (
-                            <button key={i} onClick={() => setSelectedCalendarDate(dateStr)} className={`min-h-[92px] text-left p-2 bg-white dark:bg-dark-surface hover:bg-brand-primary/5 transition-all ${!isCurrent ? 'opacity-40' : ''} ${selectedCalendarDate === dateStr ? 'ring-2 ring-brand-primary z-10' : ''}`}>
+                            <div key={i} role="button" tabIndex={0} onClick={() => setSelectedCalendarDate(dateStr)} onDragOver={handleSocialDragOver} onDrop={(e) => handleSocialDrop(e, dateStr)} className={`min-h-[92px] text-left p-2 bg-white dark:bg-dark-surface hover:bg-brand-primary/5 transition-all cursor-pointer ${!isCurrent ? 'opacity-40' : ''} ${selectedCalendarDate === dateStr ? 'ring-2 ring-brand-primary z-10' : ''}`}>
                                 <span className={`text-[10px] font-black w-6 h-6 flex items-center justify-center rounded-lg mb-1 ${isToday ? 'bg-brand-primary text-white' : 'text-neutral-600 dark:text-neutral-300'}`}>{date.getDate()}</span>
                                 <div className="space-y-1">
-                                    {events.slice(0, 3).map(({ post, campaign }) => <div key={`${campaign.id}-${post.id}`} className="px-1.5 py-1 rounded-md text-[9px] font-black bg-pink-500/10 text-pink-600 dark:text-pink-300 truncate">{String(post.scheduledAt).slice(11,16)} · {post.platform}</div>)}
+                                    {events.slice(0, 3).map(({ post, campaign }) => <div key={`${campaign.id}-${post.id}`} draggable onDragStart={(e) => handleSocialDragStart(e, campaign.id, post.id)} className="px-1.5 py-1 rounded-md text-[9px] font-black bg-pink-500/10 text-pink-600 dark:text-pink-300 truncate cursor-grab active:cursor-grabbing">{String(post.scheduledAt).slice(11,16)} · {post.platform}</div>)}
                                     {events.length > 3 && <p className="text-[9px] font-bold text-neutral-400">+{events.length - 3} más</p>}
                                 </div>
-                            </button>
+                            </div>
                         );
                     })}
                 </div>

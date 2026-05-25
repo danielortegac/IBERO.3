@@ -19,6 +19,7 @@ export async function consumeServerFeature(featureKey: FeatureKey, amount: numbe
     err.status = res.status;
     throw err;
   }
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('goatify:usage-updated', { detail: { featureKey, amount } }));
   return data;
 }
 
@@ -33,6 +34,7 @@ export async function releaseServerFeature(featureKey: FeatureKey, amount: numbe
     },
     body: JSON.stringify({ featureKey, amount })
   }).catch(() => undefined);
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('goatify:usage-updated', { detail: { featureKey, amount, released: true } }));
 }
 
 
