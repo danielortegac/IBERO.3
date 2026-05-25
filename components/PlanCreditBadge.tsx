@@ -14,6 +14,30 @@ const formatStorage = (bytes: number) => {
 
 const getPending = (limit: number, used: number) => limit >= 999999 ? 999999 : Math.max(0, limit - used);
 
+const DISPLAY_COUNTER_KEYS = [
+  'daily_chat_count',
+  'monthly_posts_used',
+  'monthly_images_used',
+  'monthly_web_ops_used',
+  'monthly_grounding_used',
+  'monthly_presentations_used',
+  'current_published_sites',
+  'current_storage_bytes'
+];
+
+const normalizeUsageForDisplay = (usage: any) => {
+  if (!usage) return usage;
+  const counters: any = { ...(usage.counters || {}) };
+  DISPLAY_COUNTER_KEYS.forEach((key) => {
+    const legacy = usage[`counters.${key}`];
+    if (typeof legacy === 'undefined') return;
+    const current = counters[key];
+    if (typeof legacy === 'number' && typeof current === 'number') counters[key] = Math.max(current, legacy);
+    else if (typeof current === 'undefined' || current === 0 || current === '') counters[key] = legacy;
+  });
+  return { ...usage, counters };
+};
+
 type PlanCreditBadgeProps = {
   compact?: boolean;
   className?: string;
@@ -33,7 +57,7 @@ const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, clas
         if (!token) return;
         const res = await fetch('/api/usage/current', { headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok && data?.usage) setLiveUsage(data.usage);
+        if (!cancelled && res.ok && data?.usage) setLiveUsage(normalizeUsageForDisplay(data.usage));
       } catch (e) {
         // Firestore listener sigue siendo la fuente principal; este fetch solo evita badges congelados en 0.
       }
@@ -43,7 +67,7 @@ const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, clas
     const onUsageUpdated = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
       if (detail.usage) {
-        setLiveUsage(detail.usage);
+        setLiveUsage(normalizeUsageForDisplay(detail.usage));
       } else if (detail.featureKey) {
         const amount = Math.max(1, Number(detail.amount || 1));
         const map: Record<string, string> = {
@@ -85,7 +109,7 @@ const PlanCreditBadge: React.FC<PlanCreditBadgeProps> = ({ compact = false, clas
 
   const metrics = useMemo(() => {
     const limits = planConfig.limits as any;
-    const effectiveUsage = liveUsage || userUsage;
+    const effectiveUsage = normalizeUsageForDisplay(liveUsage || userUsage);
     const counters = effectiveUsage?.counters || {} as any;
     const storageLimitGb = limits.storage_gb || 0;
     const storageUsedBytes = counters.current_storage_bytes || 0;

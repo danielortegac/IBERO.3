@@ -857,7 +857,7 @@ async function startServer() {
 
   app.get("/api/version", (req: any, res: any) => {
     res.json({
-      buildId: "goatify-cloudrun-secure-v1",
+      buildId: "goatify-v22-usage-counters-real",
       timestamp: new Date().toISOString(),
       mode: "backend-only"
     });
@@ -1110,6 +1110,28 @@ async function startServer() {
     }
   }
 
+
+  // Firestore set(..., { merge:true }) NO debe recibir llaves con punto como
+  // 'counters.daily_chat_count'. Eso crea campos literales de primer nivel y la UI
+  // sigue leyendo counters.daily_chat_count en 0. Este normalizador recupera valores
+  // legacy ya escritos con punto y siempre trabaja con el mapa real counters.{...}.
+  function normalizeUsageCounters(raw: any = {}, nowIso: string = new Date().toISOString()) {
+    const defaults: any = serverDefaultCounters(nowIso);
+    const nested: any = raw && typeof raw.counters === 'object' && raw.counters ? raw.counters : {};
+    const counters: any = { ...defaults, ...nested };
+    Object.keys(defaults).forEach((key) => {
+      const legacy = raw ? raw[`counters.${key}`] : undefined;
+      if (typeof legacy === 'undefined') return;
+      const current = counters[key];
+      if (typeof legacy === 'number' && typeof current === 'number') {
+        counters[key] = Math.max(current, legacy);
+      } else if (typeof nested[key] === 'undefined' || current === defaults[key]) {
+        counters[key] = legacy;
+      }
+    });
+    return counters;
+  }
+
   async function refreshUsageRollover(uid: string, userData: any = {}, usageRef = firestore.collection('user_usage').doc(uid)) {
     const timeZone = getEffectiveUserTimezone(userData);
     await firestore.runTransaction(async (tx) => {
@@ -1120,20 +1142,21 @@ async function startServer() {
       const nextMonth = new Date(now);
       nextMonth.setMonth(now.getMonth() + 1);
       const data: any = snap.data() || {};
-      const counters: any = { ...(data.counters || {}) };
-      const updates: any = { 'counters.last_activity': counters.last_activity || nowIso };
+      const counters: any = normalizeUsageCounters(data, nowIso);
+      const counterUpdates: any = { last_activity: counters.last_activity || nowIso };
+      const updates: any = {};
       const currentDailyKey = getLocalDateKey(now, timeZone);
       const lastDailyKey = counters.last_daily_reset ? getLocalDateKey(new Date(counters.last_daily_reset), timeZone) : '';
 
       if (currentDailyKey !== lastDailyKey) {
-        for (const key of SERVER_DAILY_USAGE_KEYS) updates[`counters.${key}`] = 0;
-        updates['counters.last_daily_reset'] = nowIso;
-        updates['counters.last_daily_reset_key'] = currentDailyKey;
+        for (const key of SERVER_DAILY_USAGE_KEYS) counterUpdates[key] = 0;
+        counterUpdates.last_daily_reset = nowIso;
+        counterUpdates.last_daily_reset_key = currentDailyKey;
       }
 
       const billingEnd = data.billing_cycle_end ? new Date(data.billing_cycle_end) : nextMonth;
       if (now >= billingEnd) {
-        for (const key of SERVER_MONTHLY_USAGE_KEYS) updates[`counters.${key}`] = 0;
+        for (const key of SERVER_MONTHLY_USAGE_KEYS) counterUpdates[key] = 0;
         updates.billing_cycle_start = nowIso;
         updates.billing_cycle_end = nextMonth.toISOString();
         updates.total_cost_usd = 0;
@@ -1141,7 +1164,7 @@ async function startServer() {
         updates.tokens_out = 0;
       }
 
-      if (Object.keys(updates).length > 0) tx.set(usageRef, updates, { merge: true });
+      tx.set(usageRef, { ...updates, counters: counterUpdates }, { merge: true });
     });
   }
 
@@ -1253,11 +1276,9 @@ async function startServer() {
       };
 
       const rawUsage: any = usageSnap.exists ? (usageSnap.data() || {}) : defaultUsage;
-      const counters: any = { ...serverDefaultCounters(nowIso), ...(rawUsage.counters || {}) };
-      const updates: any = {
-        plan_id: plan,
-        [`counters.last_activity`]: nowIso
-      };
+      const counters: any = normalizeUsageCounters(rawUsage, nowIso);
+      const updates: any = { plan_id: plan };
+      const counterUpdates: any = { last_activity: nowIso };
 
       if (!usageSnap.exists) {
         tx.set(usageRef, defaultUsage, { merge: true });
@@ -1269,17 +1290,17 @@ async function startServer() {
       if (currentDailyKey !== lastDailyKey) {
         for (const key of SERVER_DAILY_USAGE_KEYS) {
           counters[key] = 0;
-          updates[`counters.${key}`] = 0;
+          counterUpdates[key] = 0;
         }
-        updates[`counters.last_daily_reset`] = nowIso;
-        updates[`counters.last_daily_reset_key`] = currentDailyKey;
+        counterUpdates.last_daily_reset = nowIso;
+        counterUpdates.last_daily_reset_key = currentDailyKey;
       }
 
       const billingEnd = rawUsage.billing_cycle_end ? new Date(rawUsage.billing_cycle_end) : nextMonth;
       if (now >= billingEnd) {
         for (const key of SERVER_MONTHLY_USAGE_KEYS) {
           counters[key] = 0;
-          updates[`counters.${key}`] = 0;
+          counterUpdates[key] = 0;
         }
         updates.billing_cycle_start = nowIso;
         updates.billing_cycle_end = nextMonth.toISOString();
@@ -1316,8 +1337,8 @@ async function startServer() {
         throw err;
       }
 
-      updates[`counters.${feature.usageKey}`] = admin.firestore.FieldValue.increment(safeAmount);
-      tx.set(usageRef, updates, { merge: true });
+      counterUpdates[feature.usageKey] = currentValue + safeAmount;
+      tx.set(usageRef, { ...updates, counters: counterUpdates }, { merge: true });
       const logRef = firestore.collection('users').doc(uid).collection('usage_logs').doc();
       tx.set(logRef, {
         module: metadata.module || 'backend',
@@ -1375,7 +1396,7 @@ async function startServer() {
         user_id: uid,
         ...raw,
         plan_id: plan,
-        counters: { ...serverDefaultCounters(nowIso), ...(raw.counters || {}) }
+        counters: normalizeUsageCounters(raw, nowIso)
       };
     } catch (e) {
       console.warn('[USAGE CURRENT PAYLOAD] No se pudo leer uso actual:', e);
@@ -1455,7 +1476,7 @@ async function startServer() {
       await refreshUsageRollover(uid, userData, usageRef);
       const freshSnap = await usageRef.get();
       const usage = freshSnap.data() || usageSnap.data() || {};
-      return res.json({ ok: true, usage: { ...usage, plan_id: plan, counters: { ...serverDefaultCounters(nowIso), ...(usage.counters || {}) } } });
+      return res.json({ ok: true, usage: { ...usage, plan_id: plan, counters: normalizeUsageCounters(usage, nowIso) } });
     } catch (e: any) {
       return res.status(500).json({ ok: false, error: e?.message || 'No se pudo leer uso actual.' });
     }
@@ -1535,17 +1556,17 @@ async function startServer() {
       }
 
       const data: any = snap.data() || {};
-      const counters: any = { ...(data.counters || {}) };
+      const counters: any = normalizeUsageCounters(data, nowIso);
+      const counterUpdates: any = { last_activity: counters.last_activity || nowIso };
       const updates: any = {
         user_id: uid,
-        plan_id: userPlan,
-        'counters.last_activity': counters.last_activity || nowIso
+        plan_id: userPlan
       };
 
-      // Solo inicializa campos faltantes, sin pisar valores ya consumidos.
+      // Solo inicializa campos faltantes dentro del mapa counters real, sin llaves con punto.
       const defaults = serverDefaultCounters(nowIso) as any;
       Object.keys(defaults).forEach((key) => {
-        if (typeof counters[key] === 'undefined') updates[`counters.${key}`] = defaults[key];
+        if (typeof counters[key] === 'undefined') counterUpdates[key] = defaults[key];
       });
       if (!data.billing_cycle_start) updates.billing_cycle_start = nowIso;
       if (!data.billing_cycle_end) updates.billing_cycle_end = nextMonth.toISOString();
@@ -1553,12 +1574,13 @@ async function startServer() {
       if (typeof data.tokens_in === 'undefined') updates.tokens_in = 0;
       if (typeof data.tokens_out === 'undefined') updates.tokens_out = 0;
 
-      tx.set(usageRef, updates, { merge: true });
+      tx.set(usageRef, { ...updates, counters: counterUpdates }, { merge: true });
     });
 
     await refreshUsageRollover(uid, userData, usageRef);
     const updatedSnap = await usageRef.get();
-    return res.json({ ok: true, usage: updatedSnap.data() || null });
+    const updatedUsage: any = updatedSnap.data() || null;
+    return res.json({ ok: true, usage: updatedUsage ? { ...updatedUsage, counters: normalizeUsageCounters(updatedUsage, new Date().toISOString()) } : null });
   });
 
   app.post('/api/usage/recalculate', requireFirebaseUser, async (req: any, res: any) => {
@@ -1582,18 +1604,18 @@ async function startServer() {
         return;
       }
       const data: any = snap.data() || {};
-      const counters = data.counters || {};
+      const counters = normalizeUsageCounters(data, nowIso);
       const lastDailyKey = counters.last_daily_reset ? getLocalDateKey(new Date(counters.last_daily_reset), userTimezone) : '';
-      const updates: any = { 'counters.last_entry_date': today, 'counters.last_activity': nowIso };
+      const counterUpdates: any = { last_entry_date: today, last_activity: nowIso };
       if (today !== lastDailyKey) {
-        for (const key of SERVER_DAILY_USAGE_KEYS) updates[`counters.${key}`] = 0;
-        updates['counters.daily_entry_count'] = 1;
-        updates['counters.last_daily_reset'] = nowIso;
-        updates['counters.last_daily_reset_key'] = today;
+        for (const key of SERVER_DAILY_USAGE_KEYS) counterUpdates[key] = 0;
+        counterUpdates.daily_entry_count = 1;
+        counterUpdates.last_daily_reset = nowIso;
+        counterUpdates.last_daily_reset_key = today;
       } else {
-        updates['counters.daily_entry_count'] = admin.firestore.FieldValue.increment(1);
+        counterUpdates.daily_entry_count = Number(counters.daily_entry_count || 0) + 1;
       }
-      tx.set(usageRef, updates, { merge: true });
+      tx.set(usageRef, { counters: counterUpdates }, { merge: true });
     });
     return res.json({ ok: true });
   });
@@ -4337,7 +4359,11 @@ async function startServer() {
       await recordServerUsageTelemetry(req.user.uid, { module: reqModule || 'chat', model: modelToUse, usageMetadata: result.usageMetadata, requestId, action: 'ai_chat_alias' });
       res.json({
         candidates: [{ content: { parts: [{ text: result.text }] } }],
-        usageMetadata: result.usageMetadata
+        usageMetadata: result.usageMetadata,
+        usageUpdated: true,
+        featureKey: 'ai_chat',
+        amount: creditAmount,
+        usage: await getCurrentUsagePayload(req.user.uid)
       });
     } catch (e: any) {
       if (e?.status === 402) return sendLimitError(res, e);
@@ -4466,7 +4492,14 @@ async function startServer() {
       });
 
       await recordServerUsageTelemetry(req.user.uid, { module: 'media', model: modelToUse, usageMetadata: result.usageMetadata, requestId, action: 'gemini_media' });
-      res.json({ text: result.text, result });
+      res.json({
+        text: result.text,
+        result,
+        usageUpdated: true,
+        featureKey: mediaFeature,
+        amount: creditAmount,
+        usage: await getCurrentUsagePayload(req.user.uid)
+      });
     } catch (e: any) {
       if (e?.status === 402) return sendLimitError(res, e);
       if (creditConsumed) await releaseFeatureConsumption(req, mediaFeature, creditAmount);

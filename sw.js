@@ -1,4 +1,4 @@
-const CACHE_NAME = 'goatify-cache-v8-stable';
+const CACHE_NAME = 'goatify-cache-v22-usage-counters-real';
 // No precacheamos '/' ni '/index.html' para evitar que usuarios vean builds antiguos después de cada deploy.
 const urlsToCache = [
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap'
